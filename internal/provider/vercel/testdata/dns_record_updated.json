@@ -1,0 +1,11 @@
+{
+  "id": "rec_abc123",
+  "slug": "rec_abc123",
+  "name": "updated-www",
+  "type": "A",
+  "value": "203.0.113.10",
+  "creator": "u_abc123",
+  "domain": "example.com",
+  "ttl": 300,
+  "createdAt": 1736956800000
+}

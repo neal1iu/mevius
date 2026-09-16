@@ -65,10 +65,11 @@ func run() error {
 	slotSvc := service.NewSlotService(q)
 	refreshEng := service.NewRefreshEngine(q, reg)
 	bindingSvc := service.NewBindingService(q, reg, refreshEng)
+	deploySvc := service.NewDeployService(q, reg, refreshEng)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.NewRouter(cfg.APIToken, logger, svc, projectSvc, slotSvc, bindingSvc),
+		Handler:           api.NewRouter(cfg.APIToken, logger, svc, projectSvc, slotSvc, bindingSvc, deploySvc, q, reg, refreshEng),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

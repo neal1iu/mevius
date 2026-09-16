@@ -1,0 +1,28 @@
+{
+  "records": [
+    {
+      "id": "rec_abc123",
+      "slug": "rec_abc123",
+      "name": "www",
+      "type": "A",
+      "value": "192.0.2.1",
+      "creator": "u_abc123",
+      "domain": "example.com",
+      "ttl": 60,
+      "createdAt": "2025-01-15T10:00:00.000Z",
+      "updatedAt": "2025-01-15T10:00:00.000Z"
+    },
+    {
+      "id": "rec_def456",
+      "slug": "rec_def456",
+      "name": "@",
+      "type": "CNAME",
+      "value": "target.vercel-dns.com",
+      "creator": "u_abc123",
+      "domain": "example.com",
+      "ttl": 3600,
+      "createdAt": "2025-01-15T11:00:00.000Z",
+      "updatedAt": "2025-01-15T11:00:00.000Z"
+    }
+  ]
+}

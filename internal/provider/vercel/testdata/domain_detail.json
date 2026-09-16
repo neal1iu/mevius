@@ -1,0 +1,23 @@
+{
+  "domain": {
+    "verified": true,
+    "nameservers": ["ns1.vercel-dns.com", "ns2.vercel-dns.com"],
+    "intendedNameservers": ["ns1.vercel-dns.com", "ns2.vercel-dns.com"],
+    "creator": {
+      "username": "testuser",
+      "email": "test@example.com",
+      "id": "u_abc123"
+    },
+    "name": "example.com",
+    "expiresAt": null,
+    "boughtAt": null,
+    "createdAt": 1700000000000,
+    "id": "dom_abc123",
+    "userId": "u_abc123",
+    "teamId": "",
+    "suffix": false,
+    "serviceType": "zeit.world",
+    "echMode": "auto",
+    "renew": false
+  }
+}

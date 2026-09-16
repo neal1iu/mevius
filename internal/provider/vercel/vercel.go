@@ -137,18 +137,38 @@ func (p *VercelProvider) ListExternalResources(ctx context.Context, account *dom
 
 func (p *VercelProvider) GetResource(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
 	cl := provider.NewClient(p.baseURL)
-	path := p.buildPath("/v9/projects/"+url.PathEscape(externalID), account)
+
+	path := p.buildPath("/v5/domains/"+url.PathEscape(externalID), account)
 	body, err := cl.DoReq(ctx, "GET", path, nil, p.authHeaders(account))
+	if err == nil {
+		var domainResp struct {
+			Domain *struct {
+				Verified bool `json:"verified"`
+			} `json:"domain"`
+		}
+		if json.Unmarshal(body, &domainResp) == nil && domainResp.Domain != nil {
+			return &domain.ExternalResource{
+				ExternalID:  externalID,
+				DisplayName: externalID,
+				Meta: map[string]any{
+					"verified": domainResp.Domain.Verified,
+				},
+			}, nil
+		}
+	}
+
+	fallbackPath := p.buildPath("/v9/projects/"+url.PathEscape(externalID), account)
+	body, err = cl.DoReq(ctx, "GET", fallbackPath, nil, p.authHeaders(account))
 	if err != nil {
 		return nil, err
 	}
 
-	var resp struct {
+	var projResp struct {
 		ID        string  `json:"id"`
 		Name      string  `json:"name"`
 		Framework *string `json:"framework"`
 	}
-	if err := json.Unmarshal(body, &resp); err != nil {
+	if err := json.Unmarshal(body, &projResp); err != nil {
 		return nil, &provider.Error{
 			Kind:        provider.KindUpstream,
 			ProviderMsg: fmt.Sprintf("parse project response: %v", err),
@@ -156,12 +176,12 @@ func (p *VercelProvider) GetResource(ctx context.Context, account *domain.Provid
 	}
 
 	meta := map[string]any{}
-	if resp.Framework != nil {
-		meta["framework"] = *resp.Framework
+	if projResp.Framework != nil {
+		meta["framework"] = *projResp.Framework
 	}
 	return &domain.ExternalResource{
-		ExternalID:  resp.ID,
-		DisplayName: resp.Name,
+		ExternalID:  projResp.ID,
+		DisplayName: projResp.Name,
 		Meta:        meta,
 	}, nil
 }
