@@ -1,0 +1,14 @@
+Task 10 — Logs expired mapping (410 error path)
+==================================================
+Date: 2026-09-17T07:15Z
+
+Test: TestLogsExpired — PASS
+
+- httptest server returns HTTP 410 (Gone)
+- GetBuildLogs maps 410 → provider.Error{Kind: KindNotFound, ProviderMsg: "logs expired"}
+- Kind is "not_found" (not "upstream")
+- ProviderMsg contains "expired" substring
+- No zip download attempted
+
+This validates: expired workflow run logs (410) are mapped to not_found with
+an informative message, distinguishing them from 404 (run never existed).

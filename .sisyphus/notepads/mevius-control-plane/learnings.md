@@ -106,3 +106,10 @@
 - `ListBySlot` passes through `sync_status`/`cached_meta` from DB (updated by T8 engine)
 - API routes registered in `registerBindingRoutes` inside router.go protected group: `GET /accounts/{id}/discover?kind=`, `POST /slots/{id}/bindings`, `DELETE /bindings/{id}`, `POST /bindings/{id}/refresh`, `GET /slots/{id}/bindings`
 - For UNIQUE constraint detection with modernc/sqlite: use `strings.Contains(err.Error(), "UNIQUE constraint")` — portable and avoids driver-specific imports
+
+## [2026-09-17T07:15Z] Task: T10 — GitHub Actions (dispatch/runs/logs zip→tail)
+- go-github v66 method names: `CreateWorkflowDispatchEventByFileName`, `CreateWorkflowDispatchEventRequest`, `ListRepositoryWorkflowRuns`, `ListWorkflowRunsOptions`
+- `GetWorkflowRunLogs` returns `(*url.URL, *Response, error)` internally following 0 redirects. For 410 it returns `(nil, nil, err)` so can't inspect response status. Better: `client.NewRequest` + `http.Client{CheckRedirect: http.ErrUseLastResponse}` to handle redirects manually and detect 410.
+- Zip handling: download to memory (2MB cap via io.LimitReader), extract via archive/zip, sort filenames, concatenate with newlines, tail 256KB, set truncated flag
+- Synthetic zip fixtures created inline via `archive/zip` writer — no committed binary fixtures needed
+- Httptest closures can't reference `ts` before declaration; use `r.Host` from request to construct redirect Location URL

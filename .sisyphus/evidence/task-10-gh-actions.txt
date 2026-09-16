@@ -1,0 +1,24 @@
+Task 10 — GitHub Actions contract tests
+==========================================
+Date: 2026-09-17T07:15Z
+
+Test results: all 13 Actions/Logs tests PASS
+
+=== Test Summary ===
+TestActionsTriggerDeploy_Success       — PASS (POST dispatch 204, status=queued)
+TestActionsTriggerDeploy_NoWorkflowID  — PASS (KindUnsupported)
+TestActionsTriggerDeploy_NotFound      — PASS (KindNotFound via 404)
+TestActionsTriggerDeploy_InvalidExternalID — PASS (KindUpstream)
+TestActionsListDeployments_Success     — PASS (2 events, status mapping correct)
+TestActionsListDeployments_Empty       — PASS (0 events)
+TestActionsListDeployments_InvalidExternalID — PASS (KindUpstream)
+TestLogsTruncation                     — PASS (truncated=true, 256KB tail correct)
+TestLogsNotTruncated                   — PASS (truncated=false, 100B content intact)
+TestLogsExpired                        — PASS (KindNotFound + "expired" via 410)
+TestLogsNotFound                       — PASS (KindNotFound via 404)
+TestLogsInvalidDeployID                — PASS (KindUpstream)
+TestLogsInvalidExternalID              — PASS (KindUpstream)
+
+All 25 tests in package PASS (including 12 existing T9 tests).
+
+Zero real API calls: all requests go through httptest fixtures.
