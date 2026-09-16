@@ -1,0 +1,9 @@
+{
+  "id": "dpl_new789",
+  "name": "my-site",
+  "readyState": "QUEUED",
+  "url": "my-site-new789.vercel.app",
+  "createdAt": 1704240000000,
+  "creator": {"uid": "u_abc123"},
+  "type": "LAMBDAS"
+}

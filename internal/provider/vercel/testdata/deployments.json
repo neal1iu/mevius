@@ -1,0 +1,49 @@
+{
+  "deployments": [
+    {
+      "uid": "dpl_abc123",
+      "name": "my-site",
+      "readyState": "READY",
+      "url": "my-site-abc123.vercel.app",
+      "createdAt": 1704067200000,
+      "projectId": "prj_abc123",
+      "creator": {"uid": "u_abc123"},
+      "type": "LAMBDAS"
+    },
+    {
+      "uid": "dpl_def456",
+      "name": "my-site",
+      "readyState": "BUILDING",
+      "url": "my-site-def456.vercel.app",
+      "createdAt": 1704153600000,
+      "projectId": "prj_abc123",
+      "creator": {"uid": "u_abc123"},
+      "type": "LAMBDAS"
+    },
+    {
+      "uid": "dpl_error789",
+      "name": "my-site",
+      "readyState": "ERROR",
+      "url": null,
+      "createdAt": 1704240000000,
+      "projectId": "prj_abc123",
+      "creator": {"uid": "u_abc123"},
+      "type": "LAMBDAS"
+    },
+    {
+      "uid": "dpl_queued000",
+      "name": "my-site",
+      "readyState": "QUEUED",
+      "url": null,
+      "createdAt": 1704326400000,
+      "projectId": "prj_abc123",
+      "creator": {"uid": "u_abc123"},
+      "type": "LAMBDAS"
+    }
+  ],
+  "pagination": {
+    "count": 4,
+    "next": null,
+    "prev": null
+  }
+}

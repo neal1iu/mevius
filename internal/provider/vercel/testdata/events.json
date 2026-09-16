@@ -1,0 +1,7 @@
+[
+  {"type":"command","created":1704240000000,"payload":{"text":"Cloning git repository...\n","id":"e1","date":1704240000000,"serial":"1","deploymentId":"dpl_new789"}},
+  {"type":"stdout","created":1704240001000,"payload":{"text":"Installing dependencies...\n","id":"e2","date":1704240001000,"serial":"2","deploymentId":"dpl_new789"}},
+  {"type":"stdout","created":1704240002000,"payload":{"text":"Building application...\n","id":"e3","date":1704240002000,"serial":"3","deploymentId":"dpl_new789"}},
+  {"type":"exit","created":1704240003000,"payload":{"text":"","id":"e4","date":1704240003000,"serial":"4","deploymentId":"dpl_new789"}},
+  {"type":"stdout","created":1704240004000,"payload":{"text":"Build completed successfully.\n","id":"e5","date":1704240004000,"serial":"5","deploymentId":"dpl_new789"}}
+]
