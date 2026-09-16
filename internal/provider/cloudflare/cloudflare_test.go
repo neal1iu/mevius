@@ -165,29 +165,25 @@ func TestListExternalResources_UnsupportedKind(t *testing.T) {
 	}
 }
 
-func TestGetResource_Success(t *testing.T) {
+func TestGetResource_Worker_Success(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/accounts/test-account-id/workers/scripts/my-worker" || r.Method != http.MethodGet {
+		if r.URL.Path != "/zones/my-worker" || r.Method != http.MethodGet {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write(readFixture(t, "script_detail.json"))
+		w.Write(readFixture(t, "zone_detail.json"))
 	}))
 	defer ts.Close()
 
 	p := NewProvider(ts.URL)
 	res, err := p.GetResource(context.Background(), &domain.ProviderAccount{
 		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-account-id"},
 	}, "my-worker")
 	if err != nil {
 		t.Fatalf("GetResource failed: %v", err)
 	}
-	if res.ExternalID != "my-worker" {
-		t.Errorf("ExternalID = %q, want my-worker", res.ExternalID)
-	}
-	if res.DisplayName != "my-worker" {
-		t.Errorf("DisplayName = %q, want my-worker", res.DisplayName)
+	if res.ExternalID != "zone-001" {
+		t.Errorf("ExternalID = %q, want zone-001", res.ExternalID)
 	}
 }
 
@@ -340,6 +336,237 @@ func TestInvalidToken_MappedUnauthorized(t *testing.T) {
 	}
 	if pErr.Kind != provider.KindUnauthorized {
 		t.Errorf("Kind = %q, want %q", pErr.Kind, provider.KindUnauthorized)
+	}
+}
+
+func TestListExternalResources_DNSDomains(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/zones" || r.Method != http.MethodGet {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(readFixture(t, "zones.json"))
+	}))
+	defer ts.Close()
+
+	p := NewProvider(ts.URL)
+	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{
+		TokenEncrypted: "test-token",
+	}, domain.ResourceKindDNSDomain)
+	if err != nil {
+		t.Fatalf("ListExternalResources failed: %v", err)
+	}
+	if len(resources) != 2 {
+		t.Fatalf("got %d resources, want 2", len(resources))
+	}
+	if resources[0].ExternalID != "zone-001" {
+		t.Errorf("resources[0].ExternalID = %q, want zone-001", resources[0].ExternalID)
+	}
+	if resources[0].DisplayName != "example.com" {
+		t.Errorf("resources[0].DisplayName = %q, want example.com", resources[0].DisplayName)
+	}
+	if resources[0].Meta["status"] != "active" {
+		t.Errorf("resources[0].Meta[status] = %v, want active", resources[0].Meta["status"])
+	}
+	if resources[1].ExternalID != "zone-002" {
+		t.Errorf("resources[1].ExternalID = %q, want zone-002", resources[1].ExternalID)
+	}
+	if resources[1].DisplayName != "test.org" {
+		t.Errorf("resources[1].DisplayName = %q, want test.org", resources[1].DisplayName)
+	}
+}
+
+func TestGetResource_Zone(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/zones/zone-001" || r.Method != http.MethodGet {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(readFixture(t, "zone_detail.json"))
+	}))
+	defer ts.Close()
+
+	p := NewProvider(ts.URL)
+	res, err := p.GetResource(context.Background(), &domain.ProviderAccount{
+		TokenEncrypted: "test-token",
+	}, "zone-001")
+	if err != nil {
+		t.Fatalf("GetResource failed: %v", err)
+	}
+	if res.ExternalID != "zone-001" {
+		t.Errorf("ExternalID = %q, want zone-001", res.ExternalID)
+	}
+	if res.DisplayName != "example.com" {
+		t.Errorf("DisplayName = %q, want example.com", res.DisplayName)
+	}
+	if res.Meta["status"] != "active" {
+		t.Errorf("Meta[status] = %v, want active", res.Meta["status"])
+	}
+}
+
+func TestListRecords_Success(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/zones/zone-001/dns_records" || r.Method != http.MethodGet {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(readFixture(t, "dns_records.json"))
+	}))
+	defer ts.Close()
+
+	p := NewProvider(ts.URL)
+	records, err := p.ListRecords(context.Background(), &domain.ProviderAccount{
+		TokenEncrypted: "test-token",
+	}, "zone-001")
+	if err != nil {
+		t.Fatalf("ListRecords failed: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("got %d records, want 2", len(records))
+	}
+	if records[0].ID != "rec-001" {
+		t.Errorf("records[0].ID = %q, want rec-001", records[0].ID)
+	}
+	if records[0].Type != "A" {
+		t.Errorf("records[0].Type = %q, want A", records[0].Type)
+	}
+	if records[0].Content != "192.0.2.1" {
+		t.Errorf("records[0].Content = %q, want 192.0.2.1", records[0].Content)
+	}
+	if records[0].TTL != 120 {
+		t.Errorf("records[0].TTL = %d, want 120", records[0].TTL)
+	}
+	if records[0].Proxied == nil || !*records[0].Proxied {
+		t.Error("records[0].Proxied = nil or false, want true")
+	}
+	if records[1].Priority == nil || *records[1].Priority != 10 {
+		t.Errorf("records[1].Priority = %v, want 10", records[1].Priority)
+	}
+}
+
+func TestCreateRecord_Success(t *testing.T) {
+	var capturedBody []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/zones/zone-001/dns_records" || r.Method != http.MethodPost {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var err error
+		capturedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		r.Body.Close()
+		w.WriteHeader(http.StatusOK)
+		w.Write(readFixture(t, "dns_record_create.json"))
+	}))
+	defer ts.Close()
+
+	p := NewProvider(ts.URL)
+	proxied := true
+	rec, err := p.CreateRecord(context.Background(), &domain.ProviderAccount{
+		TokenEncrypted: "test-token",
+	}, "zone-001", domain.DNSRecord{
+		Type:    "CNAME",
+		Name:    "blog.example.com",
+		Content: "example.github.io",
+		TTL:     1,
+		Proxied: &proxied,
+	})
+	if err != nil {
+		t.Fatalf("CreateRecord failed: %v", err)
+	}
+	if rec.ID != "rec-003" {
+		t.Errorf("ID = %q, want rec-003", rec.ID)
+	}
+	if rec.Type != "CNAME" {
+		t.Errorf("Type = %q, want CNAME", rec.Type)
+	}
+	if !strings.Contains(string(capturedBody), `"name":"blog.example.com"`) {
+		t.Error("request body does not contain blog.example.com")
+	}
+}
+
+func TestUpdateRecord_Success(t *testing.T) {
+	var capturedBody []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/zones/zone-001/dns_records/rec-001" || r.Method != http.MethodPatch {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var err error
+		capturedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		r.Body.Close()
+		w.WriteHeader(http.StatusOK)
+		w.Write(readFixture(t, "dns_record_update.json"))
+	}))
+	defer ts.Close()
+
+	p := NewProvider(ts.URL)
+	proxied := true
+	rec, err := p.UpdateRecord(context.Background(), &domain.ProviderAccount{
+		TokenEncrypted: "test-token",
+	}, "zone-001", "rec-001", domain.DNSRecord{
+		Type:    "A",
+		Name:    "www.example.com",
+		Content: "203.0.113.1",
+		TTL:     120,
+		Proxied: &proxied,
+	})
+	if err != nil {
+		t.Fatalf("UpdateRecord failed: %v", err)
+	}
+	if rec.ID != "rec-001" {
+		t.Errorf("ID = %q, want rec-001", rec.ID)
+	}
+	if rec.Content != "203.0.113.1" {
+		t.Errorf("Content = %q, want 203.0.113.1", rec.Content)
+	}
+	if !strings.Contains(string(capturedBody), `"content":"203.0.113.1"`) {
+		t.Error("request body does not contain updated content")
+	}
+}
+
+func TestDeleteRecord_Success(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/zones/zone-001/dns_records/rec-001" || r.Method != http.MethodDelete {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"success":true,"result":{},"errors":[]}`))
+	}))
+	defer ts.Close()
+
+	p := NewProvider(ts.URL)
+	err := p.DeleteRecord(context.Background(), &domain.ProviderAccount{
+		TokenEncrypted: "test-token",
+	}, "zone-001", "rec-001")
+	if err != nil {
+		t.Fatalf("DeleteRecord failed: %v", err)
+	}
+}
+
+func TestDeleteRecord_NotFound(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write(readFixture(t, "not_found.json"))
+	}))
+	defer ts.Close()
+
+	p := NewProvider(ts.URL)
+	err := p.DeleteRecord(context.Background(), &domain.ProviderAccount{
+		TokenEncrypted: "test-token",
+	}, "zone-001", "nonexistent")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var pErr *provider.Error
+	if !errors.As(err, &pErr) {
+		t.Fatalf("error type = %T, want *provider.Error", err)
+	}
+	if pErr.Kind != provider.KindNotFound {
+		t.Errorf("Kind = %q, want %q", pErr.Kind, provider.KindNotFound)
 	}
 }
 

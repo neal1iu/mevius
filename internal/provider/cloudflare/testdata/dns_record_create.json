@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "result": {
+    "id": "rec-003",
+    "type": "CNAME",
+    "name": "blog.example.com",
+    "content": "example.github.io",
+    "ttl": 1,
+    "proxied": true,
+    "zone_id": "zone-001",
+    "zone_name": "example.com",
+    "created_on": "2025-09-17T00:00:00Z",
+    "modified_on": "2025-09-17T00:00:00Z"
+  },
+  "errors": [],
+  "messages": []
+}

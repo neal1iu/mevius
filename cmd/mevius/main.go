@@ -27,6 +27,12 @@ import (
 const shutdownTimeout = 10 * time.Second
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "seed":
+			os.Exit(seedRun(os.Args[2:]))
+		}
+	}
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "mevius: %v\n", err)
 		os.Exit(1)

@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "result": {
+    "id": "rec-001",
+    "type": "A",
+    "name": "www.example.com",
+    "content": "203.0.113.1",
+    "ttl": 120,
+    "proxied": true,
+    "zone_id": "zone-001",
+    "zone_name": "example.com",
+    "created_on": "2025-01-01T00:00:00Z",
+    "modified_on": "2025-09-17T00:00:00Z"
+  },
+  "errors": [],
+  "messages": []
+}

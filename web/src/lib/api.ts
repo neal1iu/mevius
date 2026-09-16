@@ -183,6 +183,7 @@ export interface SlotResponse {
   project_id: string
   name: string
   kind: string
+  provider: string
   config?: unknown
   created_at: string
 }

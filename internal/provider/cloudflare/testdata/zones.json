@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "result": [
+    {
+      "id": "zone-001",
+      "name": "example.com",
+      "status": "active",
+      "name_servers": ["ns1.example.com", "ns2.example.com"]
+    },
+    {
+      "id": "zone-002",
+      "name": "test.org",
+      "status": "active",
+      "name_servers": ["ns1.test.org", "ns2.test.org"]
+    }
+  ],
+  "errors": [],
+  "messages": []
+}

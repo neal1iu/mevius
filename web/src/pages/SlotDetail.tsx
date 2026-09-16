@@ -13,6 +13,7 @@ import {
   refreshBinding,
   unbindBinding,
 } from '@/lib/api'
+import { DnsRecords } from '@/components/DnsRecords'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -556,6 +557,27 @@ function SlotDetail() {
           </div>
         )}
       </div>
+
+      {slot && slot.kind === 'dns-domain' && bindingList.length > 0 && (
+        <div className="mt-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>DNS Records</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DnsRecords
+                bindingId={bindingList[0].id}
+                provider={slot.provider}
+                verified={
+                  bindingList[0].cached_meta
+                    ? (bindingList[0].cached_meta['verified'] as boolean | undefined)
+                    : undefined
+                }
+              />
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {slot && (
         <BindDialog

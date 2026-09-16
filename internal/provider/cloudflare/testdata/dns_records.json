@@ -1,0 +1,32 @@
+{
+  "success": true,
+  "result": [
+    {
+      "id": "rec-001",
+      "type": "A",
+      "name": "www.example.com",
+      "content": "192.0.2.1",
+      "ttl": 120,
+      "proxied": true,
+      "zone_id": "zone-001",
+      "zone_name": "example.com",
+      "created_on": "2025-01-01T00:00:00Z",
+      "modified_on": "2025-06-01T12:00:00Z"
+    },
+    {
+      "id": "rec-002",
+      "type": "MX",
+      "name": "example.com",
+      "content": "mail.example.com",
+      "ttl": 300,
+      "proxied": false,
+      "priority": 10,
+      "zone_id": "zone-001",
+      "zone_name": "example.com",
+      "created_on": "2025-01-01T00:00:00Z",
+      "modified_on": "2025-06-01T12:00:00Z"
+    }
+  ],
+  "errors": [],
+  "messages": []
+}
