@@ -152,3 +152,56 @@ CF Pages REST API does not expose raw build log output via any public endpoint. 
 - Same httptest + fixtures pattern as T13 (workers)
 - 8 testdata fixtures for projects, deployments, retry responses
 - Contract tests cover all CRUD operations, trigger matrix (3 states), deployment listing, and log fallback
+
+## T18 — Vercel DNS (2026-09-17)
+
+### What was built
+- `internal/provider/vercel/dns.go`: DNSManager implementation for Vercel-managed domains
+- `internal/api/dns.go`: DNS API routes at `/bindings/{id}/dns-records` with provider dispatch
+- `vercel.go` GetResource extended: tries `/v5/domains/{domain}` first for dns-domain (returns verified status), falls back to `/v9/projects/{id}` for static-site
+- Updated `router.go` and `main.go` to wire DNS routes (passes store.Querier and provider.Registry to NewRouter)
+
+### Vercel DNS API endpoints
+- List records: GET /v5/domains/{domain}/records → `{"records": [{id,slug,name,type,value,creator,domain,ttl,createdAt,updatedAt}]}`
+- Create record: POST /v2/domains/{domain}/records with `{"type","name","value","ttl"}` → `{"uid":"rec_...","updated":timestamp}`
+- Update record: PATCH /v1/domains/records/{recordId} with any subset of `{"type","name","value","ttl"}` → full record object with id,slug,name,type,value,domain,ttl,creator,createdAt
+- Delete record: DELETE /v2/domains/{domain}/records/{recordId} → 200 OK
+- Domain detail (inspector): GET /v5/domains/{domain} → `{"domain":{"verified":bool,...}}`
+
+### DNS API route design
+- Routes at `/bindings/{id}/dns-records` (GET list, POST create, PATCH/{recordID} update, DELETE/{recordID} delete)
+- `resolveDNSManager` helper: gets binding→account→provider→asserts DNSManager→returns (dnsMan, provAcct, zoneID, status, msg)
+- Error handling: provider.Errors map to 400, internal errors to 500, not-found to 404
+- Router signature updated: `NewRouter` now accepts `q store.Querier, reg *provider.Registry` for DNS route wiring
+
+### GetResource dual-behavior
+- Since GetResource doesn't receive the resource kind, it tries `/v5/domains/{id}` first
+- If domain endpoint succeeds with a valid domain response → returns verified status in cached_meta
+- If domain endpoint fails → falls back to `/v9/projects/{id}` for static-site resources
+- This allows the refresh engine to work for both dns-domain and static-site bindings via the same method
+
+### Test pattern
+- 8 DNS-specific tests: list, list 404, create, create zero-TTL, update, delete, delete 404, rate limit
+- 3 GetResource domain tests: verified, unverified, not-found (with two-call fallback assertion)
+- All use httptest with testdata JSON fixtures
+- `go test ./internal/provider/vercel/ -count=1` passes (all previous tests + 11 new tests)
+
+## T12 — Deploy trigger, history, streaming logs (2026-09-17)
+
+### What was built
+- `internal/service/deploy.go`: `DeployService` with `TriggerDeploy`, `ListDeployments` (30s TTL cache), `GetLogs`
+- `internal/api/deploys.go`: three routes under `/bindings/{id}/deploys` — POST trigger (202), GET list (array with in_progress), GET logs (text/plain streaming with X-Truncated)
+- Wired into `router.go` protected group and `main.go`
+
+### Key design decisions
+- `TriggerDeploy` fetches binding+slot+account → asserts Deployer capability → calls provider → invalidates refresh cache
+- `ListDeployments` uses in-memory TTL cache (30s) to avoid repeated provider calls for the same binding
+- `GetLogs` streaming response: `Content-Type: text/plain`, `X-Truncated: true` header when truncated, tail param caps lines
+- Error scrubbing: `scrubProviderErr` wraps provider.Errors with `provider.ScrubTokens` on ProviderMsg; non-provider errors also scrubbed
+- `in_progress` computed in API layer: status in {queued,in_progress} → true
+- `provider.ScrubTokens` exported from `internal/provider/errors.go` (was unexported `scrubTokens`, needed for service layer reuse)
+- No deployment persistence — all calls go directly to provider Deployer/LogFetcher
+
+### Route pattern
+- Register: `registerDeployRoutes(r, deploySvc)` called after DNS routes in router.go
+- Router accepts `*service.DeployService` and `*service.RefreshEngine` params

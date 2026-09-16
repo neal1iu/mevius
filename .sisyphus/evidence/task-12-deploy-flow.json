@@ -1,0 +1,29 @@
+{
+  "scenario": "deploy flow",
+  "description": "POST /bindings/{id}/deploys → 202, GET /bindings/{id}/deploys → array with in_progress, GET /bindings/{id}/deploys/{did}/logs → text/plain streaming",
+  "components": {
+    "service": "internal/service/deploy.go",
+    "api": "internal/api/deploys.go",
+    "router": "internal/api/router.go"
+  },
+  "build": "go build ./internal/... ./cmd/...",
+  "build_status": "pass",
+  "unit_tests": "go test ./internal/service/... ./internal/provider/...",
+  "test_status": "pass",
+  "api_routes": [
+    "POST /api/v1/bindings/{id}/deploys → 202 DeployEvent",
+    "GET /api/v1/bindings/{id}/deploys → array with in_progress field",
+    "GET /api/v1/bindings/{id}/deploys/{deployID}/logs?tail=256 → text/plain streaming, X-Truncated header"
+  ],
+  "error_paths": [
+    "no Deployer capability → 501 unsupported",
+    "compute slot binding → 501 unsupported (capability matrix)",
+    "upstream 500 → 502 BadGateway, token-scrubbed body"
+  ],
+  "key_interfaces": {
+    "Deployer": "internal/provider/provider.go:23-26",
+    "LogFetcher": "internal/provider/provider.go:28-30",
+    "DeployService": "internal/service/deploy.go:21-38",
+    "RefreshEngine.Invalidate": "internal/service/refresh.go:59-65"
+  }
+}

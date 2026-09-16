@@ -1,0 +1,24 @@
+{
+  "scenario": "unsupported and scrub",
+  "description": "compute slot binding deploys → 501; upstream errors scrub tokens from body",
+  "error_mapping": {
+    "no_Deployer_capability": {
+      "http_status": 501,
+      "error_kind": "unsupported",
+      "error_message": "provider does not support deployments"
+    },
+    "compute_slot_type": {
+      "http_status": 501,
+      "error_message": "slot type and provider combination not supported"
+    }
+  },
+  "token_scrub": {
+    "mechanism": "service/scrubProviderErr calls provider.ScrubTokens",
+    "scrubbed_patterns": [
+      "ghp_[A-Za-z0-9]{36}",
+      "Bearer [A-Za-z0-9\\-_.]+",
+      "Authorization: ***"
+    ],
+    "evidence": "provider.ScrubTokens exported in internal/provider/errors.go:89"
+  }
+}

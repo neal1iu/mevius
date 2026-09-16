@@ -36,7 +36,7 @@ func (e *Error) Error() string {
 
 func MapHTTP(status int, body []byte, headers map[string][]string) *Error {
 	kind := kindFromStatus(status)
-	msg := strings.TrimSpace(scrubTokens(string(body)))
+	msg := strings.TrimSpace(ScrubTokens(string(body)))
 
 	err := &Error{Kind: kind, ProviderMsg: msg}
 
@@ -86,7 +86,7 @@ func parseRetryAfter(headers map[string][]string) (time.Duration, bool) {
 	return 0, false
 }
 
-func scrubTokens(s string) string {
+func ScrubTokens(s string) string {
 	result := s
 	patterns := []struct {
 		search  string
