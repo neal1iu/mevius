@@ -244,3 +244,15 @@ CF Pages REST API does not expose raw build log output via any public endpoint. 
 - Slot row links to `/slots/${id}` (placeholder for T21/T22/T23)
 - lucide-react icons: Code (repo), Cpu (compute), Globe (static-site), Globe2 (dns-domain), Plus, Trash2, ArrowLeft, FolderKanban, AlertCircle
 - `cn` from `@/lib/utils` reused for conditional class merging
+
+## [2026-09-17T10:30Z] Task: T28 — Frontend tests-after (vitest)
+- vitest v5.0.1 installed with @testing-library/react, @testing-library/jest-dom, @testing-library/user-event, jsdom
+- vitest.config.ts: `environment: "jsdom"`, `globals: true`, `setupFiles: ["src/test-setup.ts"]`, alias `@` → `./src`
+- Native `<select>` (used in ProjectDetail slot type form): use `fireEvent.change(select, { target: { value } })` — `userEvent.click` on option text doesn't work for native selects
+- Radix UI Select in jsdom: `PointerEvent.prototype.hasPointerCapture` missing — polyfill in test-setup.ts: `Element.prototype.hasPointerCapture = () => false`
+- Radix Select has TWO elements with `role="combobox"` — the visible trigger button + a hidden native `<select>`. Use `getAllByRole("combobox")[0]` for the trigger
+- Radix Portal options are found in the DOM tree (not in a shadow DOM), so `findByText` works after clicking the trigger
+- MemoryRouter with Routes/Route needed for `useParams` to work: `<MemoryRouter initialEntries={["/projects/proj-1"]}><Routes><Route path="/projects/:id" element={<ProjectDetail />} /></Routes></MemoryRouter>`
+- Mutation success triggers `invalidateQueries` which re-fetches — for `mockResolvedValueOnce`, order matters: first the mutation response, then the invalidation re-fetch
+- 25 tests across 3 files (api.test.ts, slot-config-form.test.tsx, Accounts.test.tsx) all pass
+- Build unchanged: `npm run build` still succeeds
