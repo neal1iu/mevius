@@ -205,3 +205,16 @@ CF Pages REST API does not expose raw build log output via any public endpoint. 
 ### Route pattern
 - Register: `registerDeployRoutes(r, deploySvc)` called after DNS routes in router.go
 - Router accepts `*service.DeployService` and `*service.RefreshEngine` params
+
+## [2026-09-17T06:00Z] Task: T21 — Bindings UI
+- `web/src/pages/SlotDetail.tsx` created: binding cards in responsive grid (sm:grid-cols-2), status badges with distinct colors per sync_status, manual refresh per-card with loading state, unbind with confirmation dialog
+- `BindDialog` component: fetches accounts → filters by capability matrix (CAPABILITY_MATRIX constant matching backend) → account dropdown (radio-like styled buttons) → discover list (searchable radio list) → submit. Uses `useMutation` for discover/bind calls
+- Status badge colors: ok=green, error=red, auth_error=orange, orphaned=gray "remote deleted", never=blue
+- Unbind confirmation message: "This only unbinds the binding — it does not delete the remote resource."
+- Binding cards show: provider icon (2-letter initials), display_name, external_id, sync_status badge, relative last_synced_at, Refresh+Unbind buttons
+- In-flight refresh: button disabled while refreshing via Set<string> of refreshing IDs
+- Toast notifications: simple fixed position toast with auto-dismiss (3s), green for success, red for error
+- Provider initials extracted from PROVIDER_LABELS map (first 2 uppercase chars)
+- Route added at `/projects/:projectId/slots/:slotId` in App.tsx
+- API functions added to `api.ts`: getSlot, listAccounts, listBindings, discoverResources, bindResource, refreshBinding, unbindBinding with proper types
+- Pre-existing lint: Projects.tsx had unused `cn` import — fixed during this task to unblock build
