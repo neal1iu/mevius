@@ -18,6 +18,7 @@ import (
 	"mevius/internal/config"
 	"mevius/internal/provider"
 	ghprov "mevius/internal/provider/github"
+	vcprov "mevius/internal/provider/vercel"
 	"mevius/internal/service"
 	"mevius/internal/store"
 )
@@ -56,15 +57,17 @@ func run() error {
 	reg := provider.NewRegistry()
 	reg.Register(ghprov.NewProvider(provider.ProviderBaseURL("github")))
 	reg.Register(provider.NewStubProvider("cloudflare"))
-	reg.Register(provider.NewStubProvider("vercel"))
+	reg.Register(vcprov.NewProvider(provider.ProviderBaseURL("vercel")))
 
 	svc := service.NewAccountService(q, masterKey, reg)
 	projectSvc := service.NewProjectService(q)
 	slotSvc := service.NewSlotService(q)
+	refreshEng := service.NewRefreshEngine(q, reg)
+	bindingSvc := service.NewBindingService(q, reg, refreshEng)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.NewRouter(cfg.APIToken, logger, svc, projectSvc, slotSvc),
+		Handler:           api.NewRouter(cfg.APIToken, logger, svc, projectSvc, slotSvc, bindingSvc),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

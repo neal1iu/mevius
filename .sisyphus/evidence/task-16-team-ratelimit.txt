@@ -1,0 +1,10 @@
+=== RUN   TestTeamIDPropagation
+--- PASS: TestTeamIDPropagation (0.00s)
+=== RUN   TestTeamIDPropagation_NoTeam
+--- PASS: TestTeamIDPropagation_NoTeam (0.00s)
+=== RUN   TestTeamIDPropagation_OnProjectsList
+--- PASS: TestTeamIDPropagation_OnProjectsList (0.00s)
+=== RUN   TestRateLimit
+--- PASS: TestRateLimit (0.00s)
+PASS
+ok  	mevius/internal/provider/vercel	0.010s

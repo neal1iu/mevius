@@ -1,0 +1,32 @@
+=== RUN   TestValidateCredentials_Success
+--- PASS: TestValidateCredentials_Success (0.01s)
+=== RUN   TestValidateCredentials_Unauthorized
+--- PASS: TestValidateCredentials_Unauthorized (0.00s)
+=== RUN   TestValidateCredentials_RateLimit
+--- PASS: TestValidateCredentials_RateLimit (0.00s)
+=== RUN   TestListExternalResources_Projects
+--- PASS: TestListExternalResources_Projects (0.00s)
+=== RUN   TestListExternalResources_Domains
+--- PASS: TestListExternalResources_Domains (0.00s)
+=== RUN   TestListExternalResources_UnsupportedKind
+--- PASS: TestListExternalResources_UnsupportedKind (0.00s)
+=== RUN   TestGetResource_Success
+--- PASS: TestGetResource_Success (0.00s)
+=== RUN   TestGetResource_NotFound
+--- PASS: TestGetResource_NotFound (0.00s)
+=== RUN   TestCreateResource_Success
+--- PASS: TestCreateResource_Success (0.00s)
+=== RUN   TestDeleteResource_Success
+--- PASS: TestDeleteResource_Success (0.00s)
+=== RUN   TestDeleteResource_NotFound
+--- PASS: TestDeleteResource_NotFound (0.01s)
+=== RUN   TestTeamIDPropagation
+--- PASS: TestTeamIDPropagation (0.00s)
+=== RUN   TestTeamIDPropagation_NoTeam
+--- PASS: TestTeamIDPropagation_NoTeam (0.00s)
+=== RUN   TestTeamIDPropagation_OnProjectsList
+--- PASS: TestTeamIDPropagation_OnProjectsList (0.00s)
+=== RUN   TestRateLimit
+--- PASS: TestRateLimit (0.00s)
+PASS
+ok  	mevius/internal/provider/vercel	0.048s

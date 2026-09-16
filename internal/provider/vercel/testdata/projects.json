@@ -1,0 +1,21 @@
+{
+  "projects": [
+    {
+      "id": "prj_abc123",
+      "name": "my-site",
+      "framework": "nextjs",
+      "createdAt": "2024-01-15T00:00:00.000Z"
+    },
+    {
+      "id": "prj_def456",
+      "name": "landing-page",
+      "framework": null,
+      "createdAt": "2024-02-20T00:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "count": 2,
+    "next": null,
+    "prev": null
+  }
+}
