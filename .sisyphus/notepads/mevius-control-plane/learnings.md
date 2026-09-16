@@ -218,3 +218,29 @@ CF Pages REST API does not expose raw build log output via any public endpoint. 
 - Route added at `/projects/:projectId/slots/:slotId` in App.tsx
 - API functions added to `api.ts`: getSlot, listAccounts, listBindings, discoverResources, bindResource, refreshBinding, unbindBinding with proper types
 - Pre-existing lint: Projects.tsx had unused `cn` import — fixed during this task to unblock build
+
+## [2026-09-17T09:00Z] Task: T19 — Accounts UI
+- `web/src/pages/Accounts.tsx`: complete accounts management page with table, add dialog, delete dialog
+- Table columns: provider icon (2-letter initials in colored box), provider name, label, identity/scopes meta summary, created_at date, delete action button
+- MetaSummary component: GitHub shows login + scopes + missing_scopes warning badge (pale-yellow); Cloudflare shows account_name; Vercel shows username + optional team_id
+- ProviderIcon uses pale-green (github), pale-red (cloudflare), pale-blue (vercel) background colors
+- `useAccounts`/`useAddAccount`/`useDeleteAccount` with TanStack Query; add mutation refetches list on success
+- AddAccountDialog: Select for provider (radix-ui/select), Input for label + token (type=password), inline error display in pale-red box
+- DeleteAccountDialog: "This will unbind all associated bindings. Remote resources will not be affected." — matches binding UI unbind message style
+- Error handling: `parseProviderError` tries JSON parse of ApiError.message for `{kind, message}` payload; falls back to plain error message; displayed inline in dialog
+- Skeleton loading: 3 animated placeholder rows during isLoading
+- Empty state: centered message + "Add your first account" outline button
+- No token in DOM: password input is type=password, never rendered as text; response has no token field
+## [2026-09-17T10:00Z] Task: T20 — Projects+Slots UI (typed config forms)
+- `web/src/pages/Projects.tsx`: card grid (name/description/created_at) + new project dialog (name+description) + delete confirmation dialog
+- `web/src/pages/ProjectDetail.tsx`: project header (back link, name, description, created_at, slot count) + slot list (type icon in border box, type label uppercase, name, binding count, status dot) + add slot dialog with dynamic form per type
+- 4 slot type forms: repo (name, private toggle, description, workflow_id, workflow_ref), compute (name, compatibility_date), static-site (name, framework, build_command, output_dir, production_branch), dns-domain (info text only — no config fields)
+- Private toggle uses custom switch button (radix-ui/Switch alternative) with aria-checked
+- Status dot component: ok=emerald, error=red, auth_error=amber, orphaned/never=muted gray — worst status computed per slot across all its bindings
+- Form error mapping: checks err.message.toLowerCase() for "name" / "name is required" → sets `formErrors.name` → shown below input as destructive text + AlertCircle icon
+- Dialog uses radix-ui/Dialog with Portal/Overlay/Content pattern matching T19 Accounts UI
+- Slot type dropdown uses native `<select>` styled with tailwind (border-input, rounded-lg)
+- Empty states: centered messages with icon, text, subtext — matching Projects page style
+- Slot row links to `/slots/${id}` (placeholder for T21/T22/T23)
+- lucide-react icons: Code (repo), Cpu (compute), Globe (static-site), Globe2 (dns-domain), Plus, Trash2, ArrowLeft, FolderKanban, AlertCircle
+- `cn` from `@/lib/utils` reused for conditional class merging
