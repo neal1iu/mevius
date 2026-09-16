@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "result": [
+    {
+      "id": "my-site",
+      "name": "my-site",
+      "created_on": "2025-06-01T12:00:00Z",
+      "modified_on": "2025-06-10T14:30:00Z",
+      "source": {
+        "type": "github",
+        "config": {
+          "owner": "myuser",
+          "repo_name": "my-site",
+          "production_branch": "main"
+        }
+      },
+      "latest_deployment": {
+        "id": "dep-1",
+        "status": "success",
+        "created_on": "2025-06-10T14:00:00Z",
+        "modified_on": "2025-06-10T14:05:00Z"
+      }
+    },
+    {
+      "id": "direct-site",
+      "name": "direct-site",
+      "created_on": "2025-06-01T12:00:00Z",
+      "modified_on": "2025-06-10T14:30:00Z",
+      "subdomain": "direct-site.pages.dev"
+    }
+  ],
+  "errors": []
+}

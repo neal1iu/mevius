@@ -107,9 +107,48 @@
 - API routes registered in `registerBindingRoutes` inside router.go protected group: `GET /accounts/{id}/discover?kind=`, `POST /slots/{id}/bindings`, `DELETE /bindings/{id}`, `POST /bindings/{id}/refresh`, `GET /slots/{id}/bindings`
 - For UNIQUE constraint detection with modernc/sqlite: use `strings.Contains(err.Error(), "UNIQUE constraint")` — portable and avoids driver-specific imports
 
-## [2026-09-17T07:15Z] Task: T10 — GitHub Actions (dispatch/runs/logs zip→tail)
+## [2026-09-17T08:00Z] Task: T13 — CF provider core (credential validation, account resolution, workers CRUD)
+- CloudflareProvider uses `provider.NewClient` (raw HTTP, no SDK) — same as Vercel pattern, since worker upload needs custom multipart encoding
+- CF API responses wrapped in `{"success":bool, "result":..., "errors":[...], "messages":[...]}` — custom `cfResponse` struct for parsing
+- `ValidateCredentials` does two calls: GET /user/tokens/verify (status must be "active") → GET /accounts (first account used as meta.account_id + meta.account_name in Raw)
+- Workers list: GET /accounts/{aid}/workers/scripts returns `[{"id","created_on","modified_on"}]`
+- Worker create: PUT /accounts/{aid}/workers/scripts/{name} requires multipart/form-data with metadata part (`{"main_module":"worker.js"}`) and script part (`application/javascript+module`) — uses `mime/multipart` + `textproto.MIMEHeader`
+- Placeholder script content: `export default { async fetch(request) { return new Response("mevius placeholder", { status: 200 }); } }`
+- Error mapping: 401→KindUnauthorized, 404→KindNotFound (via provider.MapHTTP from httpclient.go DoReq)
+- Test pattern matches GitHub provider: httptest + readFixture helper + testdata JSON files
+- After DoReq returns error for >=400 status, response body is NOT returned for further parsing (DoReq returns the body + error, but the error is returned instead of body). Solution: provider.DoReq returns body bytes even on error (the error is returned separately), so we don't need additional error parsing for CF error bodies — MapHTTP handles it via status code
+- Registered in main.go: `cfprov.NewProvider(provider.ProviderBaseURL("cloudflare"))` replaces stub
 - go-github v66 method names: `CreateWorkflowDispatchEventByFileName`, `CreateWorkflowDispatchEventRequest`, `ListRepositoryWorkflowRuns`, `ListWorkflowRunsOptions`
 - `GetWorkflowRunLogs` returns `(*url.URL, *Response, error)` internally following 0 redirects. For 410 it returns `(nil, nil, err)` so can't inspect response status. Better: `client.NewRequest` + `http.Client{CheckRedirect: http.ErrUseLastResponse}` to handle redirects manually and detect 410.
 - Zip handling: download to memory (2MB cap via io.LimitReader), extract via archive/zip, sort filenames, concatenate with newlines, tail 256KB, set truncated flag
 - Synthetic zip fixtures created inline via `archive/zip` writer — no committed binary fixtures needed
 - Httptest closures can't reference `ts` before declaration; use `r.Host` from request to construct redirect Location URL
+
+## Vercel Deploy (T17 — 2026-09-17)
+- Redeploy spike conclusion: POST /v13/deployments with `deploymentId` from latest deployment is simpler than reconstructing gitSource. The `deploymentId` inherits all project settings and env vars automatically.
+- TriggerDeploy flow: GET /v6/deployments?projectId=&limit=1 → extract latest UID → POST /v13/deployments with `{"deploymentId":"...","name":"...","target":"production"}`
+- ListDeployments: GET /v6/deployments?projectId=&limit=20 → map `readyState` (BUILDING/INITIALIZING→in_progress, READY→completed/success, ERROR/CANCELED/BLOCKED→completed/failure, QUEUED→queued)
+- GetBuildLogs: GET /v3/deployments/{id}/events → extract `payload.text` from each event array element → concatenate → tail 256KB → set truncated flag
+- Events endpoint returns array of objects with `type` (command/stdout/exit/etc), `created` (unix ms), `payload` object containing `text` (log line string)
+- DeployEvent domain type has no URL field — only ID, Status, CreatedAt, UpdatedAt
+- Test pattern: httptest with request method/path assertions, readFixture helper shared across all test files
+- Pre-existing issue: GetResource in vercel.go tries /v5/domains/{id} first, then falls back to /v9/projects/{id}. TestGetResource_Success needed update to handle this two-call pattern.
+
+## T14 — CF Pages (2026-09-17)
+
+### What was built
+- `internal/provider/cloudflare/pages.go`: Pages CRUD (list/inspect/create/delete), Deployer (TriggerDeploy, ListDeployments), LogFetcher (GetBuildLogs with fallback)
+- `cloudflare.go` updated: `ListExternalResources` handles `static-site` kind; `CreateResource` dispatches on `spec.Kind`; `DeleteResource` falls back from workers→pages on 404
+
+### Spike conclusion
+CF Pages REST API does not expose raw build log output via any public endpoint. The deployment detail endpoint provides stage-level status/timing only. GetBuildLogs returns a stage summary (text) with `meta.fallback="dashboard_link"` and `meta.url` pointing to the Cloudflare Dashboard.
+
+### Trigger matrix
+- Git-connected project → inspect → retry latest deployment → DeployEvent
+- Direct Upload project → inspect → unsupported error
+- In-progress deployment → inspect → upstream error ("already in progress")
+
+### Test pattern
+- Same httptest + fixtures pattern as T13 (workers)
+- 8 testdata fixtures for projects, deployments, retry responses
+- Contract tests cover all CRUD operations, trigger matrix (3 states), deployment listing, and log fallback

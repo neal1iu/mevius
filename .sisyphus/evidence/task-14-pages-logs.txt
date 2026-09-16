@@ -1,0 +1,8 @@
+=== RUN   TestPagesGetBuildLogs_Fallback
+--- PASS: TestPagesGetBuildLogs_Fallback (0.01s)
+=== RUN   TestPagesLogs
+=== RUN   TestPagesLogs/fallback_with_stages
+--- PASS: TestPagesLogs (0.00s)
+    --- PASS: TestPagesLogs/fallback_with_stages (0.00s)
+PASS
+ok  	mevius/internal/provider/cloudflare	0.113s

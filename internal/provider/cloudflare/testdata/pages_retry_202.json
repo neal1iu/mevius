@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "result": {
+    "id": "dep-retried",
+    "status": "queued",
+    "created_on": "2025-06-10T15:00:00Z",
+    "modified_on": "2025-06-10T15:00:00Z"
+  },
+  "errors": []
+}

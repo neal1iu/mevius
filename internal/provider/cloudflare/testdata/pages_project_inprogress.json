@@ -1,0 +1,28 @@
+{
+  "success": true,
+  "result": {
+    "id": "inprogress-site",
+    "name": "inprogress-site",
+    "created_on": "2025-06-01T12:00:00Z",
+    "modified_on": "2025-06-10T14:30:00Z",
+    "source": {
+      "type": "github",
+      "config": {
+        "owner": "myuser",
+        "repo_name": "inprogress-site",
+        "production_branch": "main"
+      }
+    },
+    "latest_deployment": {
+      "id": "dep-inprogress",
+      "status": "in_progress",
+      "created_on": "2025-06-10T14:00:00Z",
+      "modified_on": "2025-06-10T14:05:00Z",
+      "stages": [
+        {"name": "queued", "status": "success", "started_at": "2025-06-10T14:00:00Z", "ended_at": "2025-06-10T14:00:00Z"},
+        {"name": "build", "status": "in_progress", "started_at": "2025-06-10T14:01:00Z", "ended_at": null}
+      ]
+    }
+  },
+  "errors": []
+}

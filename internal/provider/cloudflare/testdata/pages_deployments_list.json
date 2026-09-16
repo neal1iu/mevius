@@ -1,0 +1,25 @@
+{
+  "success": true,
+  "result": [
+    {
+      "id": "dep-1",
+      "status": "success",
+      "created_on": "2025-06-10T14:00:00Z",
+      "modified_on": "2025-06-10T14:05:00Z",
+      "stages": [
+        {"name": "build", "status": "success", "started_at": "2025-06-10T14:01:00Z", "ended_at": "2025-06-10T14:03:00Z"},
+        {"name": "deploy", "status": "success", "started_at": "2025-06-10T14:03:00Z", "ended_at": "2025-06-10T14:05:00Z"}
+      ]
+    },
+    {
+      "id": "dep-2",
+      "status": "failed",
+      "created_on": "2025-06-09T10:00:00Z",
+      "modified_on": "2025-06-09T10:05:00Z",
+      "stages": [
+        {"name": "build", "status": "failure", "started_at": "2025-06-09T10:01:00Z", "ended_at": "2025-06-09T10:03:00Z"}
+      ]
+    }
+  ],
+  "errors": []
+}

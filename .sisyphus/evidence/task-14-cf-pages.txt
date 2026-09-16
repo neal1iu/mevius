@@ -1,0 +1,36 @@
+=== RUN   TestPagesListExternalResources
+--- PASS: TestPagesListExternalResources (0.02s)
+=== RUN   TestPagesListExternalResources_UnsupportedKind
+--- PASS: TestPagesListExternalResources_UnsupportedKind (0.00s)
+=== RUN   TestPagesCreateResource
+--- PASS: TestPagesCreateResource (0.01s)
+=== RUN   TestPagesDeleteResource
+--- PASS: TestPagesDeleteResource (0.01s)
+=== RUN   TestPagesTriggerDeploy_GitConnected
+--- PASS: TestPagesTriggerDeploy_GitConnected (0.02s)
+=== RUN   TestPagesTriggerDeploy_DirectUploadUnsupported
+--- PASS: TestPagesTriggerDeploy_DirectUploadUnsupported (0.01s)
+=== RUN   TestPagesTriggerDeploy_InProgressConflict
+--- PASS: TestPagesTriggerDeploy_InProgressConflict (0.00s)
+=== RUN   TestPagesTriggerMatrix
+=== RUN   TestPagesTriggerMatrix/git_connected
+=== RUN   TestPagesTriggerMatrix/direct_upload_unsupported
+=== RUN   TestPagesTriggerMatrix/in_progress_409
+--- PASS: TestPagesTriggerMatrix (0.00s)
+    --- PASS: TestPagesTriggerMatrix/git_connected (0.00s)
+    --- PASS: TestPagesTriggerMatrix/direct_upload_unsupported (0.00s)
+    --- PASS: TestPagesTriggerMatrix/in_progress_409 (0.00s)
+=== RUN   TestPagesListDeployments
+--- PASS: TestPagesListDeployments (0.00s)
+=== RUN   TestPagesGetBuildLogs_Fallback
+--- PASS: TestPagesGetBuildLogs_Fallback (0.00s)
+=== RUN   TestPagesLogs
+=== RUN   TestPagesLogs/fallback_with_stages
+--- PASS: TestPagesLogs (0.00s)
+    --- PASS: TestPagesLogs/fallback_with_stages (0.00s)
+=== RUN   TestPagesCreateResource_RequiresName
+--- PASS: TestPagesCreateResource_RequiresName (0.00s)
+=== RUN   TestPagesDeleteResource_FallbackToPages
+--- PASS: TestPagesDeleteResource_FallbackToPages (0.00s)
+PASS
+ok  	mevius/internal/provider/cloudflare	0.101s

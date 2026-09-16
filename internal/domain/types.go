@@ -98,8 +98,9 @@ type DeployEvent struct {
 }
 
 type LogChunk struct {
-	Lines     string `json:"lines"`
-	Truncated bool   `json:"truncated"`
+	Lines     string         `json:"lines"`
+	Truncated bool           `json:"truncated"`
+	Meta      map[string]any `json:"meta,omitempty"`
 }
 
 type DNSRecord struct {

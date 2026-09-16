@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "result": {
+    "id": "new-site",
+    "name": "new-site",
+    "created_on": "2025-06-01T12:00:00Z",
+    "modified_on": "2025-06-01T12:00:00Z",
+    "subdomain": "new-site.pages.dev"
+  },
+  "errors": []
+}
