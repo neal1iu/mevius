@@ -1,0 +1,5 @@
+Scenario: compose smoke
+2 localhost/api/v1/health → 200 ok
+2 localhost/projects → 200 (SPA fallback)
+2 localhost/api/v1/projects → 401
+2 api container uid=1001(mevius) non-root

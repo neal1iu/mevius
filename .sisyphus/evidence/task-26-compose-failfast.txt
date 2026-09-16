@@ -1,0 +1,2 @@
+Scenario: compose failfast (missing master_key)
+2 api container exits with 'MEVIUS_MASTER_KEY is required'

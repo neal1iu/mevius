@@ -1,0 +1,12 @@
+.git/
+.gitignore
+.sisyphus/
+node_modules/
+web/node_modules/
+web/dist/
+mevius
+*.db
+*.db-*
+*.md
+LICENSE
+.dockerignore
