@@ -16,6 +16,9 @@ import (
 
 	"mevius/internal/api"
 	"mevius/internal/config"
+	"mevius/internal/provider"
+	"mevius/internal/service"
+	"mevius/internal/store"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -38,9 +41,29 @@ func run() error {
 	}))
 	slog.SetDefault(logger)
 
+	db, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return fmt.Errorf("store open: %w", err)
+	}
+	defer db.Close()
+
+	var masterKey [32]byte
+	copy(masterKey[:], cfg.MasterKey)
+
+	q := store.New(db)
+
+	reg := provider.NewRegistry()
+	reg.Register(provider.NewStubProvider("github"))
+	reg.Register(provider.NewStubProvider("cloudflare"))
+	reg.Register(provider.NewStubProvider("vercel"))
+
+	svc := service.NewAccountService(q, masterKey, reg)
+	projectSvc := service.NewProjectService(q)
+	slotSvc := service.NewSlotService(q)
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.NewRouter(cfg.APIToken, logger),
+		Handler:           api.NewRouter(cfg.APIToken, logger, svc, projectSvc, slotSvc),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

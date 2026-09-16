@@ -6,13 +6,14 @@ import (
 	"log/slog"
 	"net/http"
 
+	"mevius/internal/service"
+
 	"github.com/go-chi/chi/v5"
 )
 
-// NewRouter wires the public health probe and the token-protected /api/v1
-// group. Business routes are registered inside the protected group by later
-// tasks; this package ships no domain endpoints yet.
-func NewRouter(token string, logger *slog.Logger) http.Handler {
+// NewRouter wires the public health probe, the token-protected /api/v1 group,
+// and all business route handlers.
+func NewRouter(token string, logger *slog.Logger, accountSvc *service.AccountService, projectSvc *service.ProjectService, slotSvc *service.SlotService) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
 
@@ -21,6 +22,16 @@ func NewRouter(token string, logger *slog.Logger) http.Handler {
 
 		r.Group(func(r chi.Router) {
 			r.Use(bearerAuth(token))
+
+			h := &accountHandlers{svc: accountSvc}
+			r.Post("/accounts", h.handleCreate)
+			r.Get("/accounts", h.handleList)
+			r.Get("/accounts/{id}", h.handleGet)
+			r.Delete("/accounts/{id}", h.handleDelete)
+
+			registerProjectRoutes(r, projectSvc)
+			registerSlotRoutes(r, slotSvc, projectSvc)
+
 			// Catch-all so unmatched /api/v1 paths still pass through auth
 			// (chi skips middleware for routes that don't match).
 			r.Handle("/*", http.NotFoundHandler())
