@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "result": {
+    "id": "test-token-id",
+    "status": "active"
+  },
+  "errors": [],
+  "messages": []
+}

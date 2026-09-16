@@ -18,6 +18,7 @@ import (
 	"mevius/internal/config"
 	"mevius/internal/provider"
 	ghprov "mevius/internal/provider/github"
+	cfprov "mevius/internal/provider/cloudflare"
 	vcprov "mevius/internal/provider/vercel"
 	"mevius/internal/service"
 	"mevius/internal/store"
@@ -56,7 +57,7 @@ func run() error {
 
 	reg := provider.NewRegistry()
 	reg.Register(ghprov.NewProvider(provider.ProviderBaseURL("github")))
-	reg.Register(provider.NewStubProvider("cloudflare"))
+	reg.Register(cfprov.NewProvider(provider.ProviderBaseURL("cloudflare")))
 	reg.Register(vcprov.NewProvider(provider.ProviderBaseURL("vercel")))
 
 	svc := service.NewAccountService(q, masterKey, reg)

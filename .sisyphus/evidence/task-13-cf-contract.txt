@@ -1,0 +1,32 @@
+Task 13 — CF plugin core: contract tests all PASS, zero real network calls
+
+=== RUN   TestValidateCredentials_Success
+--- PASS: TestValidateCredentials_Success (0.00s)
+=== RUN   TestValidateCredentials_Unauthorized
+--- PASS: TestValidateCredentials_Unauthorized (0.00s)
+=== RUN   TestValidateCredentials_VerifyFails
+--- PASS: TestValidateCredentials_VerifyFails (0.00s)
+=== RUN   TestListExternalResources_Workers
+--- PASS: TestListExternalResources_Workers (0.00s)
+=== RUN   TestListExternalResources_UnsupportedKind
+--- PASS: TestListExternalResources_UnsupportedKind (0.00s)
+=== RUN   TestGetResource_Success
+--- PASS: TestGetResource_Success (0.00s)
+=== RUN   TestGetResource_NotFound
+--- PASS: TestGetResource_NotFound (0.00s)
+=== RUN   TestCreateResource_Success
+--- PASS: TestCreateResource_Success (0.00s)
+=== RUN   TestDeleteResource_Success
+--- PASS: TestDeleteResource_Success (0.00s)
+=== RUN   TestDeleteResource_NotFound
+--- PASS: TestDeleteResource_NotFound (0.00s)
+=== RUN   TestCreateResource_RequiresName
+--- PASS: TestCreateResource_RequiresName (0.00s)
+=== RUN   TestInvalidToken_MappedUnauthorized
+--- PASS: TestInvalidToken_MappedUnauthorized (0.00s)
+=== RUN   TestZeroNetworkCalls
+--- PASS: TestZeroNetworkCalls (0.00s)
+PASS
+ok  	mevius/internal/provider/cloudflare	0.027s
+
+grep -rn "api.cloudflare.com" internal/provider/cloudflare/*_test.go → exit code 1 (zero hits)

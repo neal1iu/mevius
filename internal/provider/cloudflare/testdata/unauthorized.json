@@ -1,0 +1,11 @@
+{
+  "success": false,
+  "result": null,
+  "errors": [
+    {
+      "code": 0,
+      "message": "invalid or missing api token"
+    }
+  ],
+  "messages": []
+}

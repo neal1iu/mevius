@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "result": [
+    {
+      "id": "test-account-id",
+      "name": "Test Account"
+    }
+  ],
+  "errors": [],
+  "messages": []
+}

@@ -1,0 +1,11 @@
+Task 13 — CF workers create payload and invalid token tests
+
+=== RUN   TestCreateResource_Success
+--- PASS: TestCreateResource_Success (0.00s)
+  - request body contains "mevius placeholder" ✅
+  - Content-Type is multipart/form-data ✅
+  - request body contains metadata (main_module) ✅
+
+=== RUN   TestInvalidToken_MappedUnauthorized
+--- PASS: TestInvalidToken_MappedUnauthorized (0.00s)
+  - 401 → mapped to KindUnauthorized ✅

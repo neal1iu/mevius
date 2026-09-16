@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "result": {
+    "id": "new-worker",
+    "created_on": "2025-09-17T08:00:00Z",
+    "modified_on": "2025-09-17T08:00:00Z"
+  },
+  "errors": [],
+  "messages": []
+}
