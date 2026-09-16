@@ -1,0 +1,88 @@
+# Learnings — mevius-control-plane
+
+> Conventions, patterns, discovered gotchas. **APPEND ONLY — never overwrite.**
+
+## 环境基线 (2026-09-16 实测)
+- go 1.27.1 linux/amd64
+- node v24.14.1 / npm 11.11.0
+- docker 29.4.0 / docker compose v5.1.3
+- jq 1.7
+- openssl 3.0.13
+- `sqlite3` CLI 与 `golangci-lint` 初始缺失 → Atlas 已安装（见 problems.md 记录）
+- 仓库 greenfield：初始只有 README.md/LICENSE/.gitignore
+
+## 计划锚定产物（实现前必读，位于 plan 文件）
+- 领域模型 DDL（plan L57-75）— 4 表 + UNIQUE(slot_id,account_id,external_id) + INDEX(account_id,external_id)
+- Slot config typed schemas（plan L80-84）
+- 能力矩阵（plan L86-94）— 矩阵外一律 501
+- Provider 操作配方（plan L96-117）
+- Provider 插件接口（plan L119-129）
+- 刷新引擎规范（plan L131-132）
+- 目录布局（plan L134-150）
+- 依赖白名单（plan L152-154）
+
+## 关键约定
+- 所有时间戳 UTC RFC3339
+- token 永不出现在 API 响应/日志/错误体；上游错误体需 scrub
+- SDK 类型严禁泄漏出 `internal/provider/{provider}/` 包
+- 查询/UI 永远走 account_id，不假设"唯一账户"
+- 测试禁止调用真实 provider API（httptest fixture + committed JSON）
+
+## [2026-09-16T15:06Z] Task: T1 — Go backend scaffold
+- chi v5.3.2 added; module `mevius` (go 1.27.1). golangci-lint v2.13.2 config MUST start with `version: "2"`; used `linters: {default: standard, enable: [bodyclose, errorlint, misspell, unconvert]}` + `formatters: [gofmt]` → 0 issues.
+- **chi gotcha (important for all later API tasks)**: chi SKIPS middleware for routes that don't match — a request to an unregistered path hits NotFound directly, bypassing `Use()` middleware. Fix: register a catch-all `r.Handle("/*", http.NotFoundHandler())` inside the protected group so bearer auth runs for every unmatched `/api/v1/*` path. Exact routes (e.g. `/health`) still take precedence over `/*`.
+- `http.Error` body is 13 bytes ("unauthorized\n"), chi default 404 body is 19 bytes — used in QA assertions.
+- Config fail-fast: `hex.DecodeString` + length==64 check for master key; errors name the env var. `os.Exit(1)` in main via `run() error` + stderr print.
+- Request logger: custom `statusRecorder` wrapper (WriteHeader/Write) to capture status+bytes; logs only method/path/status/bytes/duration — never Authorization.
+- Makefile `build` outputs `./mevius` (gitignored via `/mevius`); `lint` uses `$(go env GOPATH)/bin/golangci-lint`.
+
+## 2026-09-16T23:18Z Task: T2 (前端 scaffold)
+- 工具链实测: Vite 8.3.0 / React 19.2.8 / TypeScript 6.0.2 / Tailwind v4 (@tailwindcss/vite) / shadcn CLI 4.21.0 (preset `radix-nova`, icon lucide) / @tanstack/react-query 5.103.1 / react-router-dom 7.18.4
+- **坑 — TS 6.0 deprecates `baseUrl`**: shadcn 官方 Vite 指南要求加 `baseUrl`，但 TS 6.0 报 TS5101。解决：去掉 `baseUrl`，只保留 `paths: { "@/*": ["./src/*"] }`（TS 4.1+ 允许 paths 相对 tsconfig 解析）。
+- **坑 — shadcn init 非交互**: `npx shadcn@latest init -t vite -b radix -p nova -y`。注意 `-d/--defaults` = `--template=next --preset=base-nova`（是 next 模板，Vite 项目不可用）；`radix` 对应旧 "new-york"（白名单明确 radix）。init 会自动写入 index.css 并新增 `@fontsource-variable/geist`、`radix-ui`(umbrella)、`lucide-react`、`cn`、`class-variance-authority`、`tw-animate-css`、`shadcn`(CLI 包)。
+- **坑 — shadcn v4 nova 组件 import `cn` 来自 `"cn"` 包直接**（非 `@/lib/utils`）；`src/lib/utils.ts` 内容为 `export { cn } from "cn"`。自写代码从 `@/lib/utils` 导入亦可。
+- **坑 — @tanstack/react-query 首次 install 报 query-core@5.103.1 not found**（registry 传播/缓存），重试即成功。
+- **坑 — vite.config 用 `import.meta.dirname`**（Node 24 ESM，`"type":"module"`），不能用 `__dirname`（会 TS 报错）。
+- **坑 — Playwright MCP 本环境锁定 `channel=chrome` + 开启 sandbox**，root 下启动报 "Running as root without --no-sandbox"。`npx playwright install chrome --with-deps` 装 Google Chrome 153 后仍被 sandbox 拦。**可行替代**：独立 playwright 脚本 + `chromium.launch({ channel:'chrome', args:['--no-sandbox'] })`（已装 playwright@1.63.0 于 /tmp/opencode）。
+- **API 客户端约定**（后续 T19-T23 复用）: `src/lib/api.ts` 导出 `apiFetch<T>(path, init?)`，base 常量 `'/api'`，自动注入 `Authorization: Bearer <localStorage.mevius_token>`；`ApiError` 携带 `status`；401 → `clearToken()` + `setUnauthorizedHandler` 回调（App 里回调清 query cache 并回 Gate）；204 → undefined。DEV 模式暴露 `window.meviusApi` 供 QA 直接调 `apiFetch`。
+- **布局壳约定**: `App.tsx` 挂 `QueryClientProvider` + `BrowserRouter`；无 token 渲染 `<Gate/>`（不包 router）；路由 `/`、`/projects`、`/projects/:id`、`/accounts` 全占位页，侧边栏 `Sidebar.tsx` 含 "Projects"/"Accounts" 两个 NavLink（英文标签，Playwright 依赖）。
+- **端口约定**: `server.port=3000`（固定，QA 依赖）；proxy `/api` → `http://localhost:8080`。
+- QA 通过：gate 流程（password 可见→填 "abc"→点 "Save"→localStorage=abc→nav 含 Projects/Accounts）；auth header 拦截 `Bearer abc`（`/api/v1/health` 返回 502 因 T1 后端未起，但 header 捕获正确）。
+
+## [2026-09-17T00:00Z] Task: T4 — Crypto envelope (secretbox)
+- `golang.org/x/crypto v0.57.0` added (nacl/secretbox). Only new dep, matches whitelist.
+- Envelope format: `v1:{keyID}:{base64(nonce)}:{base64(ct)}`. keyID = first 8 hex chars of SHA256(key).
+- `secretbox.Seal` does NOT prepend nonce — nonce stored separately in envelope.
+- `secretbox.Open` returns `([]byte, bool)` — bool=false means auth failure (wrong key/tampered).
+- `ParseMasterKey` validates length==64 + hex decode. Used by config.Load later.
+- Test count: 7 (5 required + 2 bonus: ParseMasterKey errors table + malformed envelope table).
+- `go vet ./internal/crypto/` clean.
+- Evidence: task-4-crypto-tests.txt, task-4-bad-key.txt.
+
+## [2026-09-17T00:00Z] Task: T7 — Projects+Slots service & API
+- `modernc.org/sqlite` (not `mattn/go-sqlite3`) — for UNIQUE constraint checking, pre-check via GetByName instead of parsing driver-specific errors
+- Dynamic IN queries: modernc/sqlite does not support array parameters; manually build positional `?,?,?` placeholders in code
+- `json.RawMessage` can be `nil` — normalize to `"{}"` before insert
+- Slot type is immutable: UpdateSlot preserves existing type (only name + config changed)
+- Project detail aggregation: GetProject (1 query) → ListSlotsByProject (1 query) → collect slot IDs → ListBindingsBySlots (1 query with IN) — 3 queries total, no N+1
+- Migration 0002 added `project.updated_at` column to support PATCH endpoint
+- Added hand-written queries to sqlc-generated store: GetProjectByName, UpdateProject, UpdateSlot (name+config), ListBindingsBySlots
+
+## [2026-09-17T02:10Z] Task: T6 — Accounts service & API
+- Service layer `internal/service/account.go` accepts `*store.Queries`, `[32]byte` key, and `*provider.Registry` for the three-dependency pattern
+- `AddAccount` flow: validate token via registry → encrypt via crypto.Encrypt → store via sqlc → zero out token before return
+- Token is never returned: `TokenEncrypted` field is zeroed in `toDomainAccount()` helper and `GetAccount`/`ListAccounts`
+- `DeleteAccount` relies on FK CASCADE (binding → provider_account ON DELETE CASCADE) — no provider API calls, just DB delete
+- Stub provider in `internal/provider/stub.go`: returns unauthorized for empty/"bad"-prefixed tokens, fixed meta for valid tokens
+- API uses existing `writeJSON(w, v, status)` / `writeError(w, msg, status)` helpers from projects.go — important to match argument order
+- Wire in `cmd/mevius/main.go`: `store.Open()` → `crypto.ParseMasterKey()` → `provider.NewRegistry()` + register stubs → `service.NewAccountService()` → pass to `api.NewRouter()`
+
+## [2026-09-17T03:15Z] Task: T8 — Pull-only refresh engine
+- `internal/service/refresh.go`: `RefreshEngine` with in-memory TTL cache (`map[string]time.Time` + `sync.RWMutex`)
+- `GetBindingStatus`: checks TTL → hit → load from DB + return; miss → `singleflight.Do(bindingID)` → `Inspector.GetResource` → write back `cached_meta+sync_status+last_synced_at`
+- Error mapping: 404→orphaned, 401→auth_error, other→error+30s negative TTL
+- `Refresh(bindingID)`: deletes TTL entry → calls GetBindingStatus (bypasses TTL, still uses singleflight)
+- `Invalidate(keys...)`: deletes TTL entries — used after create/delete/deploy/DNS mutations
+- `FanOutRefresh(accountID, externalID)`: one `GetResource` call for all bindings sharing same (account_id,external_id)
+- Test strategy: `fakeQuerier` implements `store.Querier` with in-memory maps; `providerAdapter` with function fields for count tracking; 10 test cases all pass under -race
+- singleflight dep (`golang.org/x/sync`) was already in go.mod (indirect from pressly/goose)

@@ -1,0 +1,14 @@
+=== TestRefresh -v -count=1 -race (task-8 refresh engine)
+runtime: 1.065s
+10/10 PASS
+
+TestRefreshCacheHit    — first call=1 upstream; second call=0 (cache hit)
+TestRefreshCacheMiss   — expired TTL triggers 1 upstream call
+TestRefreshConcurrent  — 20 goroutines → exactly 1 upstream (singleflight)
+TestRefreshNegativeTTL  — error→sync_status=error; within 30s→0 upstream
+TestRefreshManual      — Refresh bypasses TTL → 1 upstream
+TestRefreshFanOut      — 3 bindings shared external → 1 upstream
+TestRefreshNotFound    — 404 → sync_status=orphaned
+TestRefreshUnauthorized — 401 → sync_status=auth_error
+TestRefreshInvalidate  — Invalidate → next call=1 upstream
+TestRefreshConcurrentRace — mixed Get/Invalidate/Refresh/FanOut → no race
