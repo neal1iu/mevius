@@ -1,0 +1,24 @@
+[
+  {
+    "id": 1001,
+    "name": "my-repo",
+    "full_name": "testuser/my-repo",
+    "private": false,
+    "html_url": "https://github.com/testuser/my-repo",
+    "description": "A test repo",
+    "fork": false,
+    "default_branch": "main",
+    "owner": {"login": "testuser", "id": 12345}
+  },
+  {
+    "id": 1002,
+    "name": "private-repo",
+    "full_name": "testuser/private-repo",
+    "private": true,
+    "html_url": "https://github.com/testuser/private-repo",
+    "description": "Private repo",
+    "fork": false,
+    "default_branch": "master",
+    "owner": {"login": "testuser", "id": 12345}
+  }
+]

@@ -1,0 +1,28 @@
+=== RUN   TestValidateCredentials_Success
+--- PASS: TestValidateCredentials_Success (0.00s)
+=== RUN   TestValidateCredentials_MissingScopes
+--- PASS: TestValidateCredentials_MissingScopes (0.00s)
+=== RUN   TestValidateCredentials_Unauthorized
+--- PASS: TestValidateCredentials_Unauthorized (0.00s)
+=== RUN   TestValidateCredentials_RateLimit
+--- PASS: TestValidateCredentials_RateLimit (0.00s)
+=== RUN   TestListExternalResources_Repos
+--- PASS: TestListExternalResources_Repos (0.00s)
+=== RUN   TestListExternalResources_UnsupportedKind
+--- PASS: TestListExternalResources_UnsupportedKind (0.00s)
+=== RUN   TestGetResource_Success
+--- PASS: TestGetResource_Success (0.00s)
+=== RUN   TestGetResource_NotFound
+--- PASS: TestGetResource_NotFound (0.00s)
+=== RUN   TestGetResource_InvalidExternalID
+--- PASS: TestGetResource_InvalidExternalID (0.00s)
+=== RUN   TestCreateResource_Success
+--- PASS: TestCreateResource_Success (0.00s)
+=== RUN   TestDeleteResource_Success
+--- PASS: TestDeleteResource_Success (0.00s)
+=== RUN   TestDeleteResource_NotFound
+--- PASS: TestDeleteResource_NotFound (0.00s)
+=== RUN   TestDeleteResource_InvalidExternalID
+--- PASS: TestDeleteResource_InvalidExternalID (0.00s)
+PASS
+ok  	mevius/internal/provider/github	0.015s

@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1003,
+    "name": "another-repo",
+    "full_name": "testuser/another-repo",
+    "private": false,
+    "html_url": "https://github.com/testuser/another-repo",
+    "description": "Another repo",
+    "fork": false,
+    "default_branch": "main",
+    "owner": {"login": "testuser", "id": 12345}
+  }
+]
