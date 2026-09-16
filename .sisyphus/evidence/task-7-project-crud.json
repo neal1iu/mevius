@@ -1,0 +1,41 @@
+{
+  "scenario": "project/slot CRUD",
+  "timestamp": "2026-09-17T02:12:50Z",
+  "steps": [
+    {
+      "step": "POST /projects {\"name\":\"demo\"}",
+      "status": 201,
+      "result": "project created with id, updated_at populated"
+    },
+    {
+      "step": "POST /projects {\"name\":\"demo\"} (duplicate)",
+      "status": 409,
+      "result": "name UNIQUE conflict returns 409"
+    },
+    {
+      "step": "POST /projects/{id}/slots with typed repo config",
+      "status": 201,
+      "result": "slot created with kind=repo, config={name:myrepo,private:true}"
+    },
+    {
+      "step": "GET /projects/{id}",
+      "status": 200,
+      "result": "returns project+slots+bindings aggregation (batch join, no N+1)"
+    },
+    {
+      "step": "DELETE /projects/{id}",
+      "status": 204,
+      "result": "project deleted, slots+bindings cascade deleted"
+    },
+    {
+      "step": "POST slot with invalid config (missing name)",
+      "status": 400,
+      "result": "returns 'slot config validation failed: repo config: name is required'"
+    },
+    {
+      "step": "GET /projects",
+      "status": 200,
+      "result": "lists remaining projects"
+    }
+  ]
+}

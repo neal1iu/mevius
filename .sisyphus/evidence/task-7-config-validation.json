@@ -1,0 +1,26 @@
+{
+  "scenario": "typed config validation",
+  "timestamp": "2026-09-16T18:14:26Z",
+  "steps": [
+    {
+      "step": "POST slot type=repo with unknown_field+missing name",
+      "status": 400,
+      "result": "\"repo config: name is required\""
+    },
+    {
+      "step": "POST slot type=static-site valid config {name,framework}",
+      "status": 201,
+      "result": "slot created with kind=static-site, config includes framework=vite"
+    },
+    {
+      "step": "POST slot type=dns-domain empty config",
+      "status": 201,
+      "result": "dns-domain slot created (always valid)"
+    },
+    {
+      "step": "POST slot type=compute missing name",
+      "status": 400,
+      "result": "\"compute config: name is required\""
+    }
+  ]
+}

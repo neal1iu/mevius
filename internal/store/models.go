@@ -21,6 +21,7 @@ type Project struct {
 	Name        string
 	Description string
 	CreatedAt   string
+	UpdatedAt   string
 }
 
 type ProviderAccount struct {

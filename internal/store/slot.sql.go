@@ -110,3 +110,18 @@ func (q *Queries) UpdateSlotConfig(ctx context.Context, arg UpdateSlotConfigPara
 	_, err := q.db.ExecContext(ctx, updateSlotConfig, arg.ConfigJson, arg.ID)
 	return err
 }
+
+const updateSlot = `-- name: UpdateSlot :exec
+UPDATE slot SET name = ?, config_json = ? WHERE id = ?
+`
+
+type UpdateSlotParams struct {
+	Name       string
+	ConfigJson string
+	ID         string
+}
+
+func (q *Queries) UpdateSlot(ctx context.Context, arg UpdateSlotParams) error {
+	_, err := q.db.ExecContext(ctx, updateSlot, arg.Name, arg.ConfigJson, arg.ID)
+	return err
+}

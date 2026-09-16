@@ -19,7 +19,7 @@ func (q *Queries) DeleteProject(ctx context.Context, id string) error {
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, name, description, created_at FROM project WHERE id = ?
+SELECT id, name, description, created_at, updated_at FROM project WHERE id = ?
 `
 
 func (q *Queries) GetProject(ctx context.Context, id string) (Project, error) {
@@ -30,13 +30,31 @@ func (q *Queries) GetProject(ctx context.Context, id string) (Project, error) {
 		&i.Name,
 		&i.Description,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getProjectByName = `-- name: GetProjectByName :one
+SELECT id, name, description, created_at, updated_at FROM project WHERE name = ?
+`
+
+func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, error) {
+	row := q.db.QueryRowContext(ctx, getProjectByName, name)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const insertProject = `-- name: InsertProject :exec
-INSERT INTO project (id, name, description, created_at)
-VALUES (?, ?, ?, ?)
+INSERT INTO project (id, name, description, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?)
 `
 
 type InsertProjectParams struct {
@@ -44,6 +62,7 @@ type InsertProjectParams struct {
 	Name        string
 	Description string
 	CreatedAt   string
+	UpdatedAt   string
 }
 
 func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) error {
@@ -52,12 +71,13 @@ func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) er
 		arg.Name,
 		arg.Description,
 		arg.CreatedAt,
+		arg.UpdatedAt,
 	)
 	return err
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, name, description, created_at FROM project ORDER BY created_at DESC
+SELECT id, name, description, created_at, updated_at FROM project ORDER BY created_at DESC
 `
 
 // project queries
@@ -75,6 +95,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 			&i.Name,
 			&i.Description,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -87,4 +108,25 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateProject = `-- name: UpdateProject :exec
+UPDATE project SET name = ?, description = ?, updated_at = ? WHERE id = ?
+`
+
+type UpdateProjectParams struct {
+	Name        string
+	Description string
+	UpdatedAt   string
+	ID          string
+}
+
+func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) error {
+	_, err := q.db.ExecContext(ctx, updateProject,
+		arg.Name,
+		arg.Description,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
 }

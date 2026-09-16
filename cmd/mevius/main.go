@@ -17,6 +17,7 @@ import (
 	"mevius/internal/api"
 	"mevius/internal/config"
 	"mevius/internal/provider"
+	ghprov "mevius/internal/provider/github"
 	"mevius/internal/service"
 	"mevius/internal/store"
 )
@@ -53,7 +54,7 @@ func run() error {
 	q := store.New(db)
 
 	reg := provider.NewRegistry()
-	reg.Register(provider.NewStubProvider("github"))
+	reg.Register(ghprov.NewProvider(provider.ProviderBaseURL("github")))
 	reg.Register(provider.NewStubProvider("cloudflare"))
 	reg.Register(provider.NewStubProvider("vercel"))
 

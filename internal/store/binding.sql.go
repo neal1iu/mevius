@@ -151,6 +151,73 @@ func (q *Queries) ListBindingsBySlot(ctx context.Context, slotID string) ([]Bind
 	return items, nil
 }
 
+const listBindingsBySlots = `-- name: ListBindingsBySlots :many
+SELECT id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE slot_id IN (/*SLOTS*/) ORDER BY slot_id, created_at DESC
+`
+
+func (q *Queries) ListBindingsBySlots(ctx context.Context, slotIDs []string) ([]Binding, error) {
+	query := listBindingsBySlots
+	var args []interface{}
+	for _, id := range slotIDs {
+		args = append(args, id)
+	}
+	// sqlite does not support array parameters; build positional placeholders
+	placeholder := make([]string, len(slotIDs))
+	for i := range placeholder {
+		placeholder[i] = "?"
+	}
+	query = "SELECT id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE slot_id IN (" + joinStrings(placeholder, ",") + ") ORDER BY slot_id, created_at DESC"
+
+	rows, err := q.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Binding
+	for rows.Next() {
+		var i Binding
+		if err := rows.Scan(
+			&i.ID,
+			&i.SlotID,
+			&i.AccountID,
+			&i.Provider,
+			&i.ExternalID,
+			&i.CachedMetaJson,
+			&i.SyncStatus,
+			&i.LastSyncedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func joinStrings(elems []string, sep string) string {
+	if len(elems) == 0 {
+		return ""
+	}
+	n := len(sep) * (len(elems) - 1)
+	for _, e := range elems {
+		n += len(e)
+	}
+	var b []byte
+	for i, e := range elems {
+		if i > 0 {
+			b = append(b, sep...)
+		}
+		b = append(b, []byte(e)...)
+	}
+	return string(b)
+}
+
 const updateBindingSyncStatus = `-- name: UpdateBindingSyncStatus :exec
 UPDATE binding SET sync_status = ?, cached_meta_json = ?, last_synced_at = ? WHERE id = ?
 `

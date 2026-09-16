@@ -16,6 +16,7 @@ type Querier interface {
 	FanOutBindingsByAccountExternal(ctx context.Context, arg FanOutBindingsByAccountExternalParams) ([]Binding, error)
 	GetBinding(ctx context.Context, id string) (Binding, error)
 	GetProject(ctx context.Context, id string) (Project, error)
+	GetProjectByName(ctx context.Context, name string) (Project, error)
 	GetProviderAccount(ctx context.Context, id string) (ProviderAccount, error)
 	GetSlot(ctx context.Context, id string) (Slot, error)
 	InsertBinding(ctx context.Context, arg InsertBindingParams) error
@@ -24,6 +25,7 @@ type Querier interface {
 	InsertSlot(ctx context.Context, arg InsertSlotParams) error
 	// binding queries
 	ListBindingsBySlot(ctx context.Context, slotID string) ([]Binding, error)
+	ListBindingsBySlots(ctx context.Context, slotIDs []string) ([]Binding, error)
 	// project queries
 	ListProjects(ctx context.Context) ([]Project, error)
 	// provider_account queries
@@ -31,6 +33,8 @@ type Querier interface {
 	// slot queries
 	ListSlotsByProject(ctx context.Context, projectID string) ([]Slot, error)
 	UpdateBindingSyncStatus(ctx context.Context, arg UpdateBindingSyncStatusParams) error
+	UpdateProject(ctx context.Context, arg UpdateProjectParams) error
+	UpdateSlot(ctx context.Context, arg UpdateSlotParams) error
 	UpdateSlotConfig(ctx context.Context, arg UpdateSlotConfigParams) error
 }
 
