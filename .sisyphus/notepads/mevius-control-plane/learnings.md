@@ -86,3 +86,23 @@
 - `FanOutRefresh(accountID, externalID)`: one `GetResource` call for all bindings sharing same (account_id,external_id)
 - Test strategy: `fakeQuerier` implements `store.Querier` with in-memory maps; `providerAdapter` with function fields for count tracking; 10 test cases all pass under -race
 - singleflight dep (`golang.org/x/sync`) was already in go.mod (indirect from pressly/goose)
+
+## [2026-09-17T05:05Z] Task: T16 — Vercel provider core (thin REST client)
+- Vercel uses provider.Client.DoReq directly (no SDK, unlike GitHub's go-github). No import of gogithub pattern — Vercel provider is pure REST.
+- team_id stored in Account.Meta.Raw["team_id"]; passed through via ?teamId= query param on every request when present. Preserved in ValidateCredentials output.
+- Vercel API quirks: /v9/projects returns `{"projects":[...]}` (plural wrapper), framework can be null in JSON, /v10/projects for creation (different version from list), DELETE returns 204 No Content.
+- For null framework values in project JSON, used `*string` pointer type to distinguish null from empty string — only include "framework" in meta when non-nil.
+- Authorization header format: `Bearer {token}` (same as Vercel CLI convention).
+- Fixture pattern: same readFixture helper pattern as GitHub provider in github_test.go.
+- All 15 tests pass with zero real API calls (all httptest). Added TestTeamIDPropagation_OnProjectsList to verify teamId propagates to ListExternalResources too.
+- Main.go updated: `reg.Register(vcprov.NewProvider(provider.ProviderBaseURL("vercel")))` replaces stub.
+
+## [2026-09-17T06:00Z] Task: T11 — Binding lifecycle service & API
+- `internal/service/binding.go`: `capabilityMatrix` maps ResourceKind→[]ProviderType; `ValidateCapability` returns `ErrUnsupportedCombo` for invalid slot×provider combos (maps to 501)
+- `Bind` flow: validate matrix → insert binding (UNIQUE constraint → 409 via `isUniqueConstraintError`) → Inspector.GetResource for initial cached_meta → update sync_status=ok + meta
+- `Discover` is purely transient: calls provider.ListExternalResources, no persistence
+- `Unbind` is just a DB delete — no provider API calls
+- `Refresh` delegates to T8 RefreshEngine.Refresh (bypasses TTL)
+- `ListBySlot` passes through `sync_status`/`cached_meta` from DB (updated by T8 engine)
+- API routes registered in `registerBindingRoutes` inside router.go protected group: `GET /accounts/{id}/discover?kind=`, `POST /slots/{id}/bindings`, `DELETE /bindings/{id}`, `POST /bindings/{id}/refresh`, `GET /slots/{id}/bindings`
+- For UNIQUE constraint detection with modernc/sqlite: use `strings.Contains(err.Error(), "UNIQUE constraint")` — portable and avoids driver-specific imports

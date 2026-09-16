@@ -13,7 +13,7 @@ import (
 
 // NewRouter wires the public health probe, the token-protected /api/v1 group,
 // and all business route handlers.
-func NewRouter(token string, logger *slog.Logger, accountSvc *service.AccountService, projectSvc *service.ProjectService, slotSvc *service.SlotService) http.Handler {
+func NewRouter(token string, logger *slog.Logger, accountSvc *service.AccountService, projectSvc *service.ProjectService, slotSvc *service.SlotService, bindingSvc *service.BindingService) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
 
@@ -31,6 +31,7 @@ func NewRouter(token string, logger *slog.Logger, accountSvc *service.AccountSer
 
 			registerProjectRoutes(r, projectSvc)
 			registerSlotRoutes(r, slotSvc, projectSvc)
+			registerBindingRoutes(r, bindingSvc)
 
 			// Catch-all so unmatched /api/v1 paths still pass through auth
 			// (chi skips middleware for routes that don't match).
