@@ -1,0 +1,28 @@
+=== RUN   TestTriggerDeploy_Success
+--- PASS: TestTriggerDeploy_Success (0.00s)
+=== RUN   TestTriggerDeploy_NoExistingDeployments
+--- PASS: TestTriggerDeploy_NoExistingDeployments (0.00s)
+=== RUN   TestListDeployments_Success
+--- PASS: TestListDeployments_Success (0.00s)
+=== RUN   TestListDeployments_Empty
+--- PASS: TestListDeployments_Empty (0.00s)
+=== RUN   TestGetBuildLogs_Success
+--- PASS: TestGetBuildLogs_Success (0.00s)
+=== RUN   TestGetBuildLogs_Truncated
+--- PASS: TestGetBuildLogs_Truncated (0.00s)
+=== RUN   TestGetBuildLogs_EmptyEvents
+--- PASS: TestGetBuildLogs_EmptyEvents (0.00s)
+=== RUN   TestDeploy_Unauthorized
+--- PASS: TestDeploy_Unauthorized (0.00s)
+=== RUN   TestDeploy_NotFound
+--- PASS: TestDeploy_NotFound (0.00s)
+=== RUN   TestEventsLogExtraction
+=== RUN   TestEventsLogExtraction/lines_and_truncated
+=== RUN   TestEventsLogExtraction/truncated_oversized
+--- PASS: TestEventsLogExtraction (0.01s)
+    --- PASS: TestEventsLogExtraction/lines_and_truncated (0.00s)
+    --- PASS: TestEventsLogExtraction/truncated_oversized (0.01s)
+=== RUN   TestMapDeployStatus
+--- PASS: TestMapDeployStatus (0.00s)
+PASS
+ok  	mevius/internal/provider/vercel	0.038s
