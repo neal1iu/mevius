@@ -1,0 +1,39 @@
+{
+  "scenario": "account-lifecycle",
+  "create_response": {
+    "id": "06b2777d-f49f-4f44-94f7-d3973c501466",
+    "provider": "github",
+    "label": "my-gh",
+    "meta": {
+      "account_id": "stub-account-github"
+    },
+    "created_at": "2026-09-16T18:10:45Z"
+  },
+  "list_response": [
+    {
+      "id": "06b2777d-f49f-4f44-94f7-d3973c501466",
+      "provider": "github",
+      "label": "my-gh",
+      "meta": {
+        "account_id": "stub-account-github"
+      },
+      "created_at": "2026-09-16T18:10:45Z"
+    }
+  ],
+  "get_response": {
+    "id": "06b2777d-f49f-4f44-94f7-d3973c501466",
+    "provider": "github",
+    "label": "my-gh",
+    "meta": {
+      "account_id": "stub-account-github"
+    },
+    "created_at": "2026-09-16T18:10:45Z"
+  },
+  "delete_status": "204",
+  "list_after_delete": [],
+  "bad_token_response": {
+    "kind": "unauthorized",
+    "message": "provider error: unauthorized: stub: invalid token"
+  },
+  "no_token_leak": true
+}

@@ -1,0 +1,13 @@
+{
+  "scenario": "invalid-token",
+  "request": {
+    "provider": "github",
+    "label": "bad",
+    "token": "bad-token"
+  },
+  "response": {
+    "kind": "unauthorized",
+    "message": "provider error: unauthorized: stub: invalid token"
+  },
+  "has_unauthorized_kind": true
+}
