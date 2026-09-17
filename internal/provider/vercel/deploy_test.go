@@ -39,10 +39,9 @@ func TestTriggerDeploy_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
 	binding := &domain.Binding{ExternalID: "prj_abc123"}
-	account := &domain.ProviderAccount{TokenEncrypted: "vct_test"}
-	evt, err := p.TriggerDeploy(context.Background(), account, binding, &domain.Slot{})
+	evt, err := p.TriggerDeploy(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), binding, &domain.Slot{})
 	if err != nil {
 		t.Fatalf("TriggerDeploy failed: %v", err)
 	}
@@ -70,10 +69,9 @@ func TestTriggerDeploy_NoExistingDeployments(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
 	binding := &domain.Binding{ExternalID: "prj_abc123"}
-	account := &domain.ProviderAccount{TokenEncrypted: "vct_test"}
-	_, err := p.TriggerDeploy(context.Background(), account, binding, &domain.Slot{})
+	_, err := p.TriggerDeploy(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), binding, &domain.Slot{})
 	if err == nil {
 		t.Fatal("expected error for no existing deployments")
 	}
@@ -102,9 +100,8 @@ func TestListDeployments_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	account := &domain.ProviderAccount{TokenEncrypted: "vct_test"}
-	events, err := p.ListDeployments(context.Background(), account, &domain.Binding{ExternalID: "prj_abc123"})
+	p := NewProvider()
+	events, err := p.ListDeployments(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), &domain.Binding{ExternalID: "prj_abc123"})
 	if err != nil {
 		t.Fatalf("ListDeployments failed: %v", err)
 	}
@@ -112,22 +109,18 @@ func TestListDeployments_Success(t *testing.T) {
 		t.Fatalf("got %d events, want 4", len(events))
 	}
 
-	// READY → completed/success
 	if events[0].ID != "dpl_abc123" || events[0].Status != "completed/success" {
 		t.Errorf("event[0] = %+v, want ID=dpl_abc123 Status=completed/success", events[0])
 	}
 
-	// BUILDING → in_progress
 	if events[1].ID != "dpl_def456" || events[1].Status != "in_progress" {
 		t.Errorf("event[1] = %+v, want ID=dpl_def456 Status=in_progress", events[1])
 	}
 
-	// ERROR → completed/failure
 	if events[2].ID != "dpl_error789" || events[2].Status != "completed/failure" {
 		t.Errorf("event[2] = %+v, want ID=dpl_error789 Status=completed/failure", events[2])
 	}
 
-	// QUEUED → queued
 	if events[3].ID != "dpl_queued000" || events[3].Status != "queued" {
 		t.Errorf("event[3] = %+v, want ID=dpl_queued000 Status=queued", events[3])
 	}
@@ -140,9 +133,8 @@ func TestListDeployments_Empty(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	account := &domain.ProviderAccount{TokenEncrypted: "vct_test"}
-	events, err := p.ListDeployments(context.Background(), account, &domain.Binding{ExternalID: "prj_abc123"})
+	p := NewProvider()
+	events, err := p.ListDeployments(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), &domain.Binding{ExternalID: "prj_abc123"})
 	if err != nil {
 		t.Fatalf("ListDeployments failed: %v", err)
 	}
@@ -162,9 +154,8 @@ func TestGetBuildLogs_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	account := &domain.ProviderAccount{TokenEncrypted: "vct_test"}
-	chunk, err := p.GetBuildLogs(context.Background(), account, &domain.Binding{ExternalID: "prj_abc123"}, "dpl_new789", 0)
+	p := NewProvider()
+	chunk, err := p.GetBuildLogs(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), &domain.Binding{ExternalID: "prj_abc123"}, "dpl_new789", 0)
 	if err != nil {
 		t.Fatalf("GetBuildLogs failed: %v", err)
 	}
@@ -184,9 +175,8 @@ func TestGetBuildLogs_Truncated(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	account := &domain.ProviderAccount{TokenEncrypted: "vct_test"}
-	chunk, err := p.GetBuildLogs(context.Background(), account, &domain.Binding{ExternalID: "prj_abc123"}, "dpl_big", 0)
+	p := NewProvider()
+	chunk, err := p.GetBuildLogs(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), &domain.Binding{ExternalID: "prj_abc123"}, "dpl_big", 0)
 	if err != nil {
 		t.Fatalf("GetBuildLogs failed: %v", err)
 	}
@@ -196,9 +186,7 @@ func TestGetBuildLogs_Truncated(t *testing.T) {
 	if len(chunk.Lines) > 256*1024 {
 		t.Errorf("Lines length = %d, want <= 256KB", len(chunk.Lines))
 	}
-	// tail content should be last 256KB
 	if chunk.Lines != string(readFixture(t, "events_big.json"))[:0] && len(chunk.Lines) != 256*1024 {
-		// Just verify it's the tail portion (all 'A' characters)
 		for _, c := range chunk.Lines {
 			if c != 'A' {
 				t.Errorf("unexpected char %c in truncated output", c)
@@ -215,9 +203,8 @@ func TestGetBuildLogs_EmptyEvents(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	account := &domain.ProviderAccount{TokenEncrypted: "vct_test"}
-	chunk, err := p.GetBuildLogs(context.Background(), account, &domain.Binding{ExternalID: "prj_abc123"}, "dpl_empty", 0)
+	p := NewProvider()
+	chunk, err := p.GetBuildLogs(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), &domain.Binding{ExternalID: "prj_abc123"}, "dpl_empty", 0)
 	if err != nil {
 		t.Fatalf("GetBuildLogs failed: %v", err)
 	}
@@ -236,8 +223,8 @@ func TestDeploy_Unauthorized(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ListDeployments(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_bad"}, &domain.Binding{ExternalID: "prj_abc123"})
+	p := NewProvider()
+	_, err := p.ListDeployments(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_bad"), &domain.Binding{ExternalID: "prj_abc123"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -257,8 +244,8 @@ func TestDeploy_NotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.GetBuildLogs(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, &domain.Binding{ExternalID: "prj_abc123"}, "dpl_nonexistent", 0)
+	p := NewProvider()
+	_, err := p.GetBuildLogs(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), &domain.Binding{ExternalID: "prj_abc123"}, "dpl_nonexistent", 0)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -279,8 +266,8 @@ func TestEventsLogExtraction(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		p := NewProvider(ts.URL)
-		chunk, err := p.GetBuildLogs(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, &domain.Binding{ExternalID: "prj_abc123"}, "dpl_new789", 0)
+		p := NewProvider()
+		chunk, err := p.GetBuildLogs(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), &domain.Binding{ExternalID: "prj_abc123"}, "dpl_new789", 0)
 		if err != nil {
 			t.Fatalf("GetBuildLogs failed: %v", err)
 		}
@@ -299,8 +286,8 @@ func TestEventsLogExtraction(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		p := NewProvider(ts.URL)
-		chunk, err := p.GetBuildLogs(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, &domain.Binding{ExternalID: "prj_abc123"}, "dpl_big", 0)
+		p := NewProvider()
+		chunk, err := p.GetBuildLogs(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), &domain.Binding{ExternalID: "prj_abc123"}, "dpl_big", 0)
 		if err != nil {
 			t.Fatalf("GetBuildLogs failed: %v", err)
 		}

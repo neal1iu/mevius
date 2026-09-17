@@ -10,10 +10,10 @@ import (
 	"mevius/internal/provider"
 )
 
-func (p *VercelProvider) ListRecords(ctx context.Context, account *domain.ProviderAccount, zoneID string) ([]domain.DNSRecord, error) {
-	cl := provider.NewClient(p.baseURL)
-	path := p.buildPath("/v5/domains/"+url.PathEscape(zoneID)+"/records", account)
-	body, err := cl.DoReq(ctx, "GET", path, nil, p.authHeaders(account))
+func (p *VercelProvider) ListRecords(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string) ([]domain.DNSRecord, error) {
+	cl := p.client(conn)
+	path := p.buildPath("/v5/domains/"+url.PathEscape(zoneID)+"/records", conn)
+	body, err := cl.DoReq(ctx, "GET", path, nil, p.authHeaders(credential))
 	if err != nil {
 		return nil, err
 	}
@@ -53,9 +53,9 @@ func (p *VercelProvider) ListRecords(ctx context.Context, account *domain.Provid
 	return records, nil
 }
 
-func (p *VercelProvider) CreateRecord(ctx context.Context, account *domain.ProviderAccount, zoneID string, record domain.DNSRecord) (*domain.DNSRecord, error) {
-	cl := provider.NewClient(p.baseURL)
-	path := p.buildPath("/v2/domains/"+url.PathEscape(zoneID)+"/records", account)
+func (p *VercelProvider) CreateRecord(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string, record domain.DNSRecord) (*domain.DNSRecord, error) {
+	cl := p.client(conn)
+	path := p.buildPath("/v2/domains/"+url.PathEscape(zoneID)+"/records", conn)
 
 	payload := map[string]any{
 		"type":  record.Type,
@@ -71,7 +71,7 @@ func (p *VercelProvider) CreateRecord(ctx context.Context, account *domain.Provi
 		return nil, fmt.Errorf("marshal create record: %w", err)
 	}
 
-	headers := p.authHeaders(account)
+	headers := p.authHeaders(credential)
 	headers["Content-Type"] = "application/json"
 
 	body, err := cl.DoReq(ctx, "POST", path, reqBody, headers)
@@ -96,9 +96,9 @@ func (p *VercelProvider) CreateRecord(ctx context.Context, account *domain.Provi
 	return &result, nil
 }
 
-func (p *VercelProvider) UpdateRecord(ctx context.Context, account *domain.ProviderAccount, zoneID string, recordID string, record domain.DNSRecord) (*domain.DNSRecord, error) {
-	cl := provider.NewClient(p.baseURL)
-	path := p.buildPath("/v1/domains/records/"+url.PathEscape(recordID), account)
+func (p *VercelProvider) UpdateRecord(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string, recordID string, record domain.DNSRecord) (*domain.DNSRecord, error) {
+	cl := p.client(conn)
+	path := p.buildPath("/v1/domains/records/"+url.PathEscape(recordID), conn)
 
 	payload := map[string]any{}
 	if record.Type != "" {
@@ -119,7 +119,7 @@ func (p *VercelProvider) UpdateRecord(ctx context.Context, account *domain.Provi
 		return nil, fmt.Errorf("marshal update record: %w", err)
 	}
 
-	headers := p.authHeaders(account)
+	headers := p.authHeaders(credential)
 	headers["Content-Type"] = "application/json"
 
 	body, err := cl.DoReq(ctx, "PATCH", path, reqBody, headers)
@@ -155,9 +155,9 @@ func (p *VercelProvider) UpdateRecord(ctx context.Context, account *domain.Provi
 	}, nil
 }
 
-func (p *VercelProvider) DeleteRecord(ctx context.Context, account *domain.ProviderAccount, zoneID string, recordID string) error {
-	cl := provider.NewClient(p.baseURL)
-	path := p.buildPath("/v2/domains/"+url.PathEscape(zoneID)+"/records/"+url.PathEscape(recordID), account)
-	_, err := cl.DoReq(ctx, "DELETE", path, nil, p.authHeaders(account))
+func (p *VercelProvider) DeleteRecord(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string, recordID string) error {
+	cl := p.client(conn)
+	path := p.buildPath("/v2/domains/"+url.PathEscape(zoneID)+"/records/"+url.PathEscape(recordID), conn)
+	_, err := cl.DoReq(ctx, "DELETE", path, nil, p.authHeaders(credential))
 	return err
 }

@@ -11,24 +11,26 @@ import (
 	"mevius/internal/provider"
 )
 
-type VercelProvider struct {
-	baseURL string
-}
+type VercelProvider struct{}
 
-func NewProvider(baseURL string) *VercelProvider {
-	return &VercelProvider{baseURL: baseURL}
+func NewProvider() *VercelProvider {
+	return &VercelProvider{}
 }
 
 func (p *VercelProvider) Type() string {
 	return "vercel"
 }
 
-func (p *VercelProvider) ValidateCredentials(ctx context.Context, account *domain.ProviderAccount) (domain.AccountMeta, error) {
-	cl := provider.NewClient(p.baseURL)
-	path := p.buildPath("/v2/user", account)
-	body, err := cl.DoReq(ctx, "GET", path, nil, p.authHeaders(account))
+func (p *VercelProvider) Descriptor() domain.ProviderDescriptor {
+	return provider.VercelDescriptor
+}
+
+func (p *VercelProvider) ValidateCredentials(ctx context.Context, conn *domain.ProviderConnection, credential []byte) (json.RawMessage, error) {
+	cl := p.client(conn)
+	path := p.buildPath("/v2/user", conn)
+	body, err := cl.DoReq(ctx, "GET", path, nil, p.authHeaders(credential))
 	if err != nil {
-		return domain.AccountMeta{}, err
+		return nil, err
 	}
 
 	var resp struct {
@@ -38,34 +40,34 @@ func (p *VercelProvider) ValidateCredentials(ctx context.Context, account *domai
 		} `json:"user"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return domain.AccountMeta{}, &provider.Error{
+		return nil, &provider.Error{
 			Kind:        provider.KindUpstream,
 			ProviderMsg: fmt.Sprintf("parse user response: %v", err),
 		}
 	}
 
-	meta := domain.AccountMeta{
-		AccountID: resp.User.ID,
-		Raw: map[string]any{
-			"user_id":  resp.User.ID,
-			"username": resp.User.Username,
-		},
+	info := map[string]any{
+		"user_id":  resp.User.ID,
+		"username": resp.User.Username,
+	}
+	if teamID, ok := p.extractTeamID(conn); ok && teamID != "" {
+		info["team_id"] = teamID
 	}
 
-	if teamID, ok := p.extractTeamID(account); ok && teamID != "" {
-		meta.Raw["team_id"] = teamID
+	raw, err := json.Marshal(info)
+	if err != nil {
+		return nil, fmt.Errorf("marshal account info: %w", err)
 	}
-
-	return meta, nil
+	return json.RawMessage(raw), nil
 }
 
-func (p *VercelProvider) ListExternalResources(ctx context.Context, account *domain.ProviderAccount, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
-	cl := provider.NewClient(p.baseURL)
+func (p *VercelProvider) ListExternalResources(ctx context.Context, conn *domain.ProviderConnection, credential []byte, product domain.ProductType) ([]domain.ExternalResource, error) {
+	cl := p.client(conn)
 
-	switch kind {
-	case domain.ResourceKindStaticSite:
-		path := p.buildPath("/v9/projects", account)
-		body, err := cl.DoReq(ctx, "GET", path, nil, p.authHeaders(account))
+	switch string(product) {
+	case "vercel.projects":
+		path := p.buildPath("/v9/projects", conn)
+		body, err := cl.DoReq(ctx, "GET", path, nil, p.authHeaders(credential))
 		if err != nil {
 			return nil, err
 		}
@@ -98,9 +100,9 @@ func (p *VercelProvider) ListExternalResources(ctx context.Context, account *dom
 		}
 		return resources, nil
 
-	case domain.ResourceKindDNSDomain:
-		path := p.buildPath("/v5/domains", account)
-		body, err := cl.DoReq(ctx, "GET", path, nil, p.authHeaders(account))
+	case "vercel.dns":
+		path := p.buildPath("/v5/domains", conn)
+		body, err := cl.DoReq(ctx, "GET", path, nil, p.authHeaders(credential))
 		if err != nil {
 			return nil, err
 		}
@@ -131,15 +133,15 @@ func (p *VercelProvider) ListExternalResources(ctx context.Context, account *dom
 		return resources, nil
 
 	default:
-		return nil, &provider.Error{Kind: provider.KindUnsupported, ProviderMsg: fmt.Sprintf("vercel does not support %q resources", kind)}
+		return nil, &provider.Error{Kind: provider.KindUnsupported, ProviderMsg: fmt.Sprintf("vercel does not support %q product", product)}
 	}
 }
 
-func (p *VercelProvider) GetResource(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
-	cl := provider.NewClient(p.baseURL)
+func (p *VercelProvider) GetResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
+	cl := p.client(conn)
 
-	path := p.buildPath("/v5/domains/"+url.PathEscape(externalID), account)
-	body, err := cl.DoReq(ctx, "GET", path, nil, p.authHeaders(account))
+	path := p.buildPath("/v5/domains/"+url.PathEscape(externalID), conn)
+	body, err := cl.DoReq(ctx, "GET", path, nil, p.authHeaders(credential))
 	if err == nil {
 		var domainResp struct {
 			Domain *struct {
@@ -157,8 +159,8 @@ func (p *VercelProvider) GetResource(ctx context.Context, account *domain.Provid
 		}
 	}
 
-	fallbackPath := p.buildPath("/v9/projects/"+url.PathEscape(externalID), account)
-	body, err = cl.DoReq(ctx, "GET", fallbackPath, nil, p.authHeaders(account))
+	fallbackPath := p.buildPath("/v9/projects/"+url.PathEscape(externalID), conn)
+	body, err = cl.DoReq(ctx, "GET", fallbackPath, nil, p.authHeaders(credential))
 	if err != nil {
 		return nil, err
 	}
@@ -186,9 +188,9 @@ func (p *VercelProvider) GetResource(ctx context.Context, account *domain.Provid
 	}, nil
 }
 
-func (p *VercelProvider) CreateResource(ctx context.Context, account *domain.ProviderAccount, spec domain.ResourceSpec) (*domain.ExternalResource, error) {
-	cl := provider.NewClient(p.baseURL)
-	path := p.buildPath("/v10/projects", account)
+func (p *VercelProvider) CreateResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, spec domain.ResourceSpec) (*domain.ExternalResource, error) {
+	cl := p.client(conn)
+	path := p.buildPath("/v10/projects", conn)
 
 	payload := map[string]any{
 		"name": spec.Name,
@@ -202,7 +204,7 @@ func (p *VercelProvider) CreateResource(ctx context.Context, account *domain.Pro
 		return nil, fmt.Errorf("marshal create request: %w", err)
 	}
 
-	headers := p.authHeaders(account)
+	headers := p.authHeaders(credential)
 	headers["Content-Type"] = "application/json"
 
 	body, err := cl.DoReq(ctx, "POST", path, reqBody, headers)
@@ -233,21 +235,29 @@ func (p *VercelProvider) CreateResource(ctx context.Context, account *domain.Pro
 	}, nil
 }
 
-func (p *VercelProvider) DeleteResource(ctx context.Context, account *domain.ProviderAccount, externalID string) error {
-	cl := provider.NewClient(p.baseURL)
-	path := p.buildPath("/v9/projects/"+url.PathEscape(externalID), account)
-	_, err := cl.DoReq(ctx, "DELETE", path, nil, p.authHeaders(account))
+func (p *VercelProvider) DeleteResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) error {
+	cl := p.client(conn)
+	path := p.buildPath("/v9/projects/"+url.PathEscape(externalID), conn)
+	_, err := cl.DoReq(ctx, "DELETE", path, nil, p.authHeaders(credential))
 	return err
 }
 
-func (p *VercelProvider) authHeaders(account *domain.ProviderAccount) map[string]string {
+func (p *VercelProvider) client(conn *domain.ProviderConnection) *provider.Client {
+	baseURL := conn.Endpoint
+	if baseURL == "" {
+		baseURL = "https://api.vercel.com"
+	}
+	return provider.NewClient(baseURL)
+}
+
+func (p *VercelProvider) authHeaders(credential []byte) map[string]string {
 	return map[string]string{
-		"Authorization": "Bearer " + account.TokenEncrypted,
+		"Authorization": "Bearer " + string(credential),
 	}
 }
 
-func (p *VercelProvider) buildPath(basePath string, account *domain.ProviderAccount) string {
-	teamID, ok := p.extractTeamID(account)
+func (p *VercelProvider) buildPath(basePath string, conn *domain.ProviderConnection) string {
+	teamID, ok := p.extractTeamID(conn)
 	if !ok || teamID == "" {
 		return basePath
 	}
@@ -258,11 +268,11 @@ func (p *VercelProvider) buildPath(basePath string, account *domain.ProviderAcco
 	return basePath + sep + "teamId=" + url.QueryEscape(teamID)
 }
 
-func (p *VercelProvider) extractTeamID(account *domain.ProviderAccount) (string, bool) {
-	if account.Meta.Raw == nil {
+func (p *VercelProvider) extractTeamID(conn *domain.ProviderConnection) (string, bool) {
+	if conn.Config == nil {
 		return "", false
 	}
-	teamID, ok := account.Meta.Raw["team_id"]
+	teamID, ok := conn.Config["team_id"]
 	if !ok {
 		return "", false
 	}
@@ -284,3 +294,13 @@ func (p *VercelProvider) frameworkFromExtra(spec domain.ResourceSpec) string {
 	}
 	return s
 }
+
+var (
+	_ provider.Provider    = (*VercelProvider)(nil)
+	_ provider.Discoverer  = (*VercelProvider)(nil)
+	_ provider.Inspector   = (*VercelProvider)(nil)
+	_ provider.Provisioner = (*VercelProvider)(nil)
+	_ provider.Deployer    = (*VercelProvider)(nil)
+	_ provider.LogFetcher  = (*VercelProvider)(nil)
+	_ provider.DNSManager  = (*VercelProvider)(nil)
+)

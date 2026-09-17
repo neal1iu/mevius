@@ -2,6 +2,7 @@ package vercel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -34,16 +35,21 @@ func TestValidateCredentials_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	meta, err := p.ValidateCredentials(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"})
+	p := NewProvider()
+	raw, err := p.ValidateCredentials(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"))
 	if err != nil {
 		t.Fatalf("ValidateCredentials failed: %v", err)
 	}
-	if meta.AccountID != "u_abc123" {
-		t.Errorf("AccountID = %q, want u_abc123", meta.AccountID)
+
+	var info map[string]any
+	if err := json.Unmarshal(raw, &info); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
 	}
-	if meta.Raw["username"] != "testuser" {
-		t.Errorf("username = %v, want testuser", meta.Raw["username"])
+	if info["user_id"] != "u_abc123" {
+		t.Errorf("user_id = %v, want u_abc123", info["user_id"])
+	}
+	if info["username"] != "testuser" {
+		t.Errorf("username = %v, want testuser", info["username"])
 	}
 }
 
@@ -54,8 +60,8 @@ func TestValidateCredentials_Unauthorized(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_bad"})
+	p := NewProvider()
+	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_bad"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -76,8 +82,8 @@ func TestValidateCredentials_RateLimit(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"})
+	p := NewProvider()
+	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -100,8 +106,8 @@ func TestListExternalResources_Projects(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, domain.ResourceKindStaticSite)
+	p := NewProvider()
+	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "vercel.projects")
 	if err != nil {
 		t.Fatalf("ListExternalResources failed: %v", err)
 	}
@@ -132,8 +138,8 @@ func TestListExternalResources_Domains(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, domain.ResourceKindDNSDomain)
+	p := NewProvider()
+	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "vercel.dns")
 	if err != nil {
 		t.Fatalf("ListExternalResources failed: %v", err)
 	}
@@ -155,10 +161,10 @@ func TestListExternalResources_Domains(t *testing.T) {
 }
 
 func TestListExternalResources_UnsupportedKind(t *testing.T) {
-	p := NewProvider("")
-	_, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, domain.ResourceKindCompute)
+	p := NewProvider()
+	_, err := p.ListExternalResources(context.Background(), &domain.ProviderConnection{}, []byte("vct_test"), "unknown.product")
 	if err == nil {
-		t.Fatal("expected error for unsupported kind")
+		t.Fatal("expected error for unsupported product")
 	}
 	var pErr *provider.Error
 	if !errors.As(err, &pErr) {
@@ -174,7 +180,6 @@ func TestGetResource_Success(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		if callCount == 1 {
-			// First call tries /v5/domains/{id} — return 404 so it falls through to projects
 			if r.URL.Path != "/v5/domains/prj_abc123" || r.Method != http.MethodGet {
 				t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			}
@@ -190,8 +195,8 @@ func TestGetResource_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	res, err := p.GetResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "prj_abc123")
+	p := NewProvider()
+	res, err := p.GetResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "prj_abc123")
 	if err != nil {
 		t.Fatalf("GetResource failed: %v", err)
 	}
@@ -213,8 +218,8 @@ func TestGetResource_NotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.GetResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "prj_nonexistent")
+	p := NewProvider()
+	_, err := p.GetResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "prj_nonexistent")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -240,15 +245,14 @@ func TestCreateResource_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
 	spec := domain.ResourceSpec{
 		Name: "my-new-site",
-		Kind: domain.ResourceKindStaticSite,
 		Extra: map[string]any{
 			"framework": "nextjs",
 		},
 	}
-	res, err := p.CreateResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, spec)
+	res, err := p.CreateResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), spec)
 	if err != nil {
 		t.Fatalf("CreateResource failed: %v", err)
 	}
@@ -272,8 +276,8 @@ func TestDeleteResource_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "prj_abc123")
+	p := NewProvider()
+	err := p.DeleteResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "prj_abc123")
 	if err != nil {
 		t.Fatalf("DeleteResource failed: %v", err)
 	}
@@ -286,8 +290,8 @@ func TestDeleteResource_NotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "prj_nonexistent")
+	p := NewProvider()
+	err := p.DeleteResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "prj_nonexistent")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -310,21 +314,23 @@ func TestTeamIDPropagation(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	account := &domain.ProviderAccount{
-		TokenEncrypted: "vct_test",
-		Meta: domain.AccountMeta{
-			Raw: map[string]any{
-				"team_id": "team_xyz",
-			},
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		Config: map[string]any{
+			"team_id": "team_xyz",
 		},
 	}
-	meta, err := p.ValidateCredentials(context.Background(), account)
+	raw, err := p.ValidateCredentials(context.Background(), conn, []byte("vct_test"))
 	if err != nil {
 		t.Fatalf("ValidateCredentials failed: %v", err)
 	}
-	if meta.Raw["team_id"] != "team_xyz" {
-		t.Errorf("preserved team_id = %v, want team_xyz", meta.Raw["team_id"])
+	var info map[string]any
+	if err := json.Unmarshal(raw, &info); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if info["team_id"] != "team_xyz" {
+		t.Errorf("preserved team_id = %v, want team_xyz", info["team_id"])
 	}
 }
 
@@ -338,12 +344,8 @@ func TestTeamIDPropagation_NoTeam(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	account := &domain.ProviderAccount{
-		TokenEncrypted: "vct_test",
-		Meta:           domain.AccountMeta{},
-	}
-	_, err := p.ValidateCredentials(context.Background(), account)
+	p := NewProvider()
+	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"))
 	if err != nil {
 		t.Fatalf("ValidateCredentials failed: %v", err)
 	}
@@ -359,16 +361,14 @@ func TestTeamIDPropagation_OnProjectsList(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	account := &domain.ProviderAccount{
-		TokenEncrypted: "vct_test",
-		Meta: domain.AccountMeta{
-			Raw: map[string]any{
-				"team_id": "team_xyz",
-			},
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		Config: map[string]any{
+			"team_id": "team_xyz",
 		},
 	}
-	_, err := p.ListExternalResources(context.Background(), account, domain.ResourceKindStaticSite)
+	_, err := p.ListExternalResources(context.Background(), conn, []byte("vct_test"), "vercel.projects")
 	if err != nil {
 		t.Fatalf("ListExternalResources failed: %v", err)
 	}
@@ -382,8 +382,8 @@ func TestRateLimit(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, domain.ResourceKindStaticSite)
+	p := NewProvider()
+	_, err := p.ListExternalResources(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "vercel.projects")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -409,8 +409,8 @@ func TestDNSListRecords_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	records, err := p.ListRecords(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "example.com")
+	p := NewProvider()
+	records, err := p.ListRecords(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "example.com")
 	if err != nil {
 		t.Fatalf("ListRecords failed: %v", err)
 	}
@@ -450,8 +450,8 @@ func TestDNSListRecords_DomainNotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ListRecords(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "nonexistent.com")
+	p := NewProvider()
+	_, err := p.ListRecords(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "nonexistent.com")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -477,14 +477,14 @@ func TestDNSCreateRecord_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
 	record := domain.DNSRecord{
 		Type:    "A",
 		Name:    "test",
 		Content: "192.0.2.1",
 		TTL:     3600,
 	}
-	created, err := p.CreateRecord(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "example.com", record)
+	created, err := p.CreateRecord(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "example.com", record)
 	if err != nil {
 		t.Fatalf("CreateRecord failed: %v", err)
 	}
@@ -518,14 +518,14 @@ func TestDNSCreateRecord_ZeroTTL(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
 	record := domain.DNSRecord{
 		Type:    "A",
 		Name:    "test",
 		Content: "192.0.2.1",
 		TTL:     0,
 	}
-	created, err := p.CreateRecord(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "example.com", record)
+	created, err := p.CreateRecord(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "example.com", record)
 	if err != nil {
 		t.Fatalf("CreateRecord failed: %v", err)
 	}
@@ -547,14 +547,14 @@ func TestDNSUpdateRecord_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
 	record := domain.DNSRecord{
 		Type:    "A",
 		Name:    "updated-www",
 		Content: "203.0.113.10",
 		TTL:     300,
 	}
-	updated, err := p.UpdateRecord(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "example.com", "rec_abc123", record)
+	updated, err := p.UpdateRecord(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "example.com", "rec_abc123", record)
 	if err != nil {
 		t.Fatalf("UpdateRecord failed: %v", err)
 	}
@@ -585,8 +585,8 @@ func TestDNSDeleteRecord_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteRecord(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "example.com", "rec_abc123")
+	p := NewProvider()
+	err := p.DeleteRecord(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "example.com", "rec_abc123")
 	if err != nil {
 		t.Fatalf("DeleteRecord failed: %v", err)
 	}
@@ -599,8 +599,8 @@ func TestDNSDeleteRecord_NotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteRecord(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "example.com", "rec_nonexistent")
+	p := NewProvider()
+	err := p.DeleteRecord(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "example.com", "rec_nonexistent")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -623,8 +623,8 @@ func TestGetResource_DomainVerified(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	res, err := p.GetResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "example.com")
+	p := NewProvider()
+	res, err := p.GetResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "example.com")
 	if err != nil {
 		t.Fatalf("GetResource failed: %v", err)
 	}
@@ -649,8 +649,8 @@ func TestGetResource_DomainUnverified(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	res, err := p.GetResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "unverified.org")
+	p := NewProvider()
+	res, err := p.GetResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "unverified.org")
 	if err != nil {
 		t.Fatalf("GetResource failed: %v", err)
 	}
@@ -679,8 +679,8 @@ func TestGetResource_DomainNotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.GetResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "nonexistent.com")
+	p := NewProvider()
+	_, err := p.GetResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "nonexistent.com")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -701,8 +701,8 @@ func TestDNSRateLimit(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ListRecords(context.Background(), &domain.ProviderAccount{TokenEncrypted: "vct_test"}, "example.com")
+	p := NewProvider()
+	_, err := p.ListRecords(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("vct_test"), "example.com")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -715,5 +715,16 @@ func TestDNSRateLimit(t *testing.T) {
 	}
 	if pErr.RetryAfter == 0 {
 		t.Error("RetryAfter = 0, want > 0")
+	}
+}
+
+func TestDescriptor(t *testing.T) {
+	p := NewProvider()
+	desc := p.Descriptor()
+	if desc.Type != domain.ProviderTypeVercel {
+		t.Errorf("Type = %q, want %q", desc.Type, domain.ProviderTypeVercel)
+	}
+	if len(desc.Products) == 0 {
+		t.Error("expected at least one product")
 	}
 }
