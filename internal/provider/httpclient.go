@@ -5,8 +5,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"os"
-	"strings"
 	"time"
 )
 
@@ -14,23 +12,6 @@ const (
 	defaultTimeout = 15 * time.Second
 	userAgent      = "mevius/v1"
 )
-
-var defaultBaseURLs = map[string]string{
-	"github":    "https://api.github.com",
-	"cloudflare": "https://api.cloudflare.com/client/v4",
-	"vercel":    "https://api.vercel.com",
-}
-
-func ProviderBaseURL(providerType string) string {
-	envKey := "MEVIUS_" + strings.ToUpper(providerType) + "_BASE_URL"
-	if v := os.Getenv(envKey); v != "" {
-		return v
-	}
-	if base, ok := defaultBaseURLs[providerType]; ok {
-		return base
-	}
-	return ""
-}
 
 type Client struct {
 	baseURL    string

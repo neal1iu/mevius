@@ -18,6 +18,7 @@ type Querier interface {
 	GetProject(ctx context.Context, id string) (Project, error)
 	GetProjectByName(ctx context.Context, name string) (Project, error)
 	GetProviderConnection(ctx context.Context, id string) (ProviderConnection, error)
+	GetProviderConnectionCredential(ctx context.Context, id string) (string, error)
 	GetSlot(ctx context.Context, id string) (Slot, error)
 	InsertBinding(ctx context.Context, arg InsertBindingParams) error
 	InsertProject(ctx context.Context, arg InsertProjectParams) error

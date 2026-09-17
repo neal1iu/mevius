@@ -2,38 +2,40 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
+
 	"mevius/internal/domain"
 )
 
 type Provider interface {
 	Type() string
-	ValidateCredentials(ctx context.Context, account *domain.ProviderAccount) (domain.AccountMeta, error)
-	ListExternalResources(ctx context.Context, account *domain.ProviderAccount, kind domain.ResourceKind) ([]domain.ExternalResource, error)
+	Descriptor() domain.ProviderDescriptor
+	ValidateCredentials(ctx context.Context, conn *domain.ProviderConnection, credential []byte) (json.RawMessage, error)
 }
 
 type Inspector interface {
-	GetResource(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error)
+	GetResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error)
 }
 
 type Provisioner interface {
-	CreateResource(ctx context.Context, account *domain.ProviderAccount, spec domain.ResourceSpec) (*domain.ExternalResource, error)
-	DeleteResource(ctx context.Context, account *domain.ProviderAccount, externalID string) error
+	CreateResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, spec domain.ResourceSpec) (*domain.ExternalResource, error)
+	DeleteResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) error
 }
 
 type Deployer interface {
-	TriggerDeploy(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error)
-	ListDeployments(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding) ([]domain.DeployEvent, error)
+	TriggerDeploy(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error)
+	ListDeployments(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding) ([]domain.DeployEvent, error)
 }
 
 type LogFetcher interface {
-	GetBuildLogs(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error)
+	GetBuildLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error)
 }
 
 type DNSManager interface {
-	ListRecords(ctx context.Context, account *domain.ProviderAccount, zoneID string) ([]domain.DNSRecord, error)
-	CreateRecord(ctx context.Context, account *domain.ProviderAccount, zoneID string, record domain.DNSRecord) (*domain.DNSRecord, error)
-	UpdateRecord(ctx context.Context, account *domain.ProviderAccount, zoneID string, recordID string, record domain.DNSRecord) (*domain.DNSRecord, error)
-	DeleteRecord(ctx context.Context, account *domain.ProviderAccount, zoneID string, recordID string) error
+	ListRecords(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string) ([]domain.DNSRecord, error)
+	CreateRecord(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string, record domain.DNSRecord) (*domain.DNSRecord, error)
+	UpdateRecord(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string, recordID string, record domain.DNSRecord) (*domain.DNSRecord, error)
+	DeleteRecord(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string, recordID string) error
 }
 
 type Registry struct {
@@ -54,4 +56,8 @@ func (r *Registry) Register(p Provider) {
 
 func (r *Registry) Get(providerType string) Provider {
 	return r.providers[providerType]
+}
+
+func (r *Registry) All() map[string]Provider {
+	return r.providers
 }

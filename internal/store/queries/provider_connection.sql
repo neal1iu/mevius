@@ -11,3 +11,6 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: DeleteProviderConnection :exec
 DELETE FROM provider_connection WHERE id = ?;
+
+-- name: GetProviderConnectionCredential :one
+SELECT encrypted_credential FROM provider_connection WHERE id = ?;

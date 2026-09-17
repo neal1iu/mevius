@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 )
@@ -46,24 +47,34 @@ type ProductType string
 
 type Capability string
 
+const (
+	CapDiscover   Capability = "discover"
+	CapInspect    Capability = "inspect"
+	CapCreate     Capability = "create"
+	CapDelete     Capability = "delete"
+	CapWorkflow   Capability = "workflow"
+	CapDeploy     Capability = "deploy"
+	CapLogs       Capability = "logs"
+	CapDNSManage  Capability = "dns_manage"
+)
+
 type ProviderDescriptor struct {
-	Type         ProviderType `json:"type"`
-	DisplayName  string       `json:"display_name"`
-	Capabilities []Capability `json:"capabilities"`
+	Type         ProviderType         `json:"type"`
+	DisplayName  string               `json:"display_name"`
+	Products     []ProductDescriptor  `json:"products"`
 }
 
 type ProductDescriptor struct {
-	Product      ProductType    `json:"product"`
-	DisplayName  string         `json:"display_name"`
-	Provider     ProviderType   `json:"provider"`
-	Capabilities []Capability   `json:"capabilities"`
-	Slots        []SlotRole     `json:"slots"`
+	ID           string       `json:"id"`
+	DisplayName  string       `json:"display_name,omitempty"`
+	ResourceKind ResourceKind `json:"resource_kind"`
+	Roles        []SlotRole   `json:"roles"`
+	Capabilities []Capability `json:"capabilities"`
 	ConfigSchema map[string]any `json:"config_schema,omitempty"`
 }
 
 type CredentialStore interface {
-	Encrypt(plaintext []byte) ([]byte, error)
-	Decrypt(ciphertext []byte) ([]byte, error)
+	Resolve(ctx context.Context, ref string) ([]byte, error)
 }
 
 type Project struct {

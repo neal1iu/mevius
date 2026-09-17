@@ -104,3 +104,14 @@ func (q *Queries) ListProviderConnections(ctx context.Context) ([]ProviderConnec
 	}
 	return items, nil
 }
+
+const getProviderConnectionCredential = `-- name: GetProviderConnectionCredential :one
+SELECT encrypted_credential FROM provider_connection WHERE id = ?
+`
+
+func (q *Queries) GetProviderConnectionCredential(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getProviderConnectionCredential, id)
+	var encrypted_credential string
+	err := row.Scan(&encrypted_credential)
+	return encrypted_credential, err
+}

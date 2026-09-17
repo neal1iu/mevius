@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"mevius/internal/domain"
@@ -19,24 +20,31 @@ func (s *stubProvider) Type() string {
 	return s.providerType
 }
 
-func (s *stubProvider) ValidateCredentials(_ context.Context, account *domain.ProviderAccount) (domain.AccountMeta, error) {
-	if account.TokenEncrypted == "" {
-		return domain.AccountMeta{}, &Error{
-			Kind:        KindUnauthorized,
-			ProviderMsg: "stub: token is required",
-		}
+func (s *stubProvider) Descriptor() domain.ProviderDescriptor {
+	switch s.providerType {
+	case string(domain.ProviderTypeGitHub):
+		return GitHubDescriptor
+	case string(domain.ProviderTypeCloudflare):
+		return CloudflareDescriptor
+	case string(domain.ProviderTypeVercel):
+		return VercelDescriptor
+	default:
+		return domain.ProviderDescriptor{Type: domain.ProviderType(s.providerType)}
 	}
-	if strings.HasPrefix(account.TokenEncrypted, "bad") {
-		return domain.AccountMeta{}, &Error{
-			Kind:        KindUnauthorized,
-			ProviderMsg: "stub: invalid token",
-		}
-	}
-	return domain.AccountMeta{
-		AccountID: "stub-account-" + s.providerType,
-	}, nil
 }
 
-func (s *stubProvider) ListExternalResources(_ context.Context, account *domain.ProviderAccount, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
-	return []domain.ExternalResource{}, nil
+func (s *stubProvider) ValidateCredentials(_ context.Context, conn *domain.ProviderConnection, credential []byte) (json.RawMessage, error) {
+	if len(credential) == 0 {
+		return nil, &Error{
+			Kind:        KindUnauthorized,
+			ProviderMsg: "stub: credential is required",
+		}
+	}
+	if strings.HasPrefix(string(credential), "bad") {
+		return nil, &Error{
+			Kind:        KindUnauthorized,
+			ProviderMsg: "stub: invalid credential",
+		}
+	}
+	return json.RawMessage(`{"account_id":"stub-account-` + s.providerType + `"}`), nil
 }
