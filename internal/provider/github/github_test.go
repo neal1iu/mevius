@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -32,29 +33,29 @@ func TestValidateCredentials_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	meta, err := p.ValidateCredentials(context.Background(), &domain.ProviderAccount{TokenEncrypted: "ghp_test"})
+	p := NewProvider()
+	raw, err := p.ValidateCredentials(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("ghp_test"))
 	if err != nil {
 		t.Fatalf("ValidateCredentials failed: %v", err)
 	}
-	if meta.AccountID != "testuser" {
-		t.Errorf("AccountID = %q, want %q", meta.AccountID, "testuser")
+	var meta map[string]any
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatalf("unmarshal meta: %v", err)
 	}
-	raw := meta.Raw
-	if raw == nil {
-		t.Fatal("Raw is nil")
+	if meta["account_id"] != "testuser" {
+		t.Errorf("account_id = %v, want testuser", meta["account_id"])
 	}
-	if raw["login"] != "testuser" {
-		t.Errorf("login = %v, want testuser", raw["login"])
+	if meta["login"] != "testuser" {
+		t.Errorf("login = %v, want testuser", meta["login"])
 	}
-	scopes, ok := raw["scopes"].([]string)
+	scopes, ok := meta["scopes"].([]any)
 	if !ok {
-		t.Fatal("scopes not []string")
+		t.Fatal("scopes not []any")
 	}
 	if len(scopes) != 3 || scopes[0] != "repo" || scopes[1] != "workflow" || scopes[2] != "delete_repo" {
 		t.Errorf("scopes = %v, want [repo workflow delete_repo]", scopes)
 	}
-	if _, exists := raw["missing_scopes"]; exists {
+	if _, exists := meta["missing_scopes"]; exists {
 		t.Error("missing_scopes should not exist when all scopes present")
 	}
 }
@@ -67,22 +68,26 @@ func TestValidateCredentials_MissingScopes(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	meta, err := p.ValidateCredentials(context.Background(), &domain.ProviderAccount{TokenEncrypted: "ghp_test"})
+	p := NewProvider()
+	raw, err := p.ValidateCredentials(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("ghp_test"))
 	if err != nil {
 		t.Fatalf("ValidateCredentials failed: %v", err)
 	}
-	missing, ok := meta.Raw["missing_scopes"].([]string)
-	if !ok {
-		t.Fatal("missing_scopes not []string")
+	var meta map[string]any
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatalf("unmarshal meta: %v", err)
 	}
-	expected := []string{"workflow", "delete_repo"}
+	missing, ok := meta["missing_scopes"].([]any)
+	if !ok {
+		t.Fatal("missing_scopes not []any")
+	}
+	expected := []any{"workflow", "delete_repo"}
 	if len(missing) != len(expected) {
 		t.Errorf("missing_scopes = %v, want %v", missing, expected)
 	}
 	for i, v := range expected {
 		if missing[i] != v {
-			t.Errorf("missing_scopes[%d] = %q, want %q", i, missing[i], v)
+			t.Errorf("missing_scopes[%d] = %v, want %v", i, missing[i], v)
 		}
 	}
 }
@@ -94,8 +99,8 @@ func TestValidateCredentials_Unauthorized(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderAccount{TokenEncrypted: "ghp_bad"})
+	p := NewProvider()
+	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("ghp_bad"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -116,8 +121,8 @@ func TestValidateCredentials_RateLimit(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderAccount{TokenEncrypted: "ghp_test"})
+	p := NewProvider()
+	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("ghp_test"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -158,8 +163,8 @@ func TestListExternalResources_Repos(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{TokenEncrypted: "ghp_test"}, domain.ResourceKindRepo)
+	p := NewProvider()
+	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("ghp_test"), domain.ProductType("github.repositories"))
 	if err != nil {
 		t.Fatalf("ListExternalResources failed: %v", err)
 	}
@@ -190,10 +195,10 @@ func TestListExternalResources_Repos(t *testing.T) {
 }
 
 func TestListExternalResources_UnsupportedKind(t *testing.T) {
-	p := NewProvider("")
-	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{TokenEncrypted: "test"}, domain.ResourceKindStaticSite)
+	p := NewProvider()
+	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderConnection{Endpoint: ""}, []byte("test"), domain.ProductType("cloudflare.workers"))
 	if err == nil {
-		t.Fatal("expected error for unsupported kind")
+		t.Fatal("expected error for unsupported product")
 	}
 	if resources != nil {
 		t.Errorf("resources = %v, want nil", resources)
@@ -217,8 +222,8 @@ func TestGetResource_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	res, err := p.GetResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "ghp_test"}, "testuser/my-repo")
+	p := NewProvider()
+	res, err := p.GetResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("ghp_test"), "testuser/my-repo")
 	if err != nil {
 		t.Fatalf("GetResource failed: %v", err)
 	}
@@ -237,8 +242,8 @@ func TestGetResource_NotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.GetResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "ghp_test"}, "testuser/nonexistent")
+	p := NewProvider()
+	_, err := p.GetResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("ghp_test"), "testuser/nonexistent")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -252,8 +257,8 @@ func TestGetResource_NotFound(t *testing.T) {
 }
 
 func TestGetResource_InvalidExternalID(t *testing.T) {
-	p := NewProvider("")
-	_, err := p.GetResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "test"}, "invalid")
+	p := NewProvider()
+	_, err := p.GetResource(context.Background(), &domain.ProviderConnection{Endpoint: ""}, []byte("test"), "invalid")
 	if err == nil {
 		t.Fatal("expected error for invalid external_id")
 	}
@@ -276,13 +281,12 @@ func TestCreateResource_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
 	spec := domain.ResourceSpec{
 		Name:    "new-repo",
 		Private: false,
-		Kind:    domain.ResourceKindRepo,
 	}
-	res, err := p.CreateResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "ghp_test"}, spec)
+	res, err := p.CreateResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("ghp_test"), spec)
 	if err != nil {
 		t.Fatalf("CreateResource failed: %v", err)
 	}
@@ -303,8 +307,8 @@ func TestDeleteResource_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "ghp_test"}, "testuser/my-repo")
+	p := NewProvider()
+	err := p.DeleteResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("ghp_test"), "testuser/my-repo")
 	if err != nil {
 		t.Fatalf("DeleteResource failed: %v", err)
 	}
@@ -317,8 +321,8 @@ func TestDeleteResource_NotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "ghp_test"}, "testuser/nonexistent")
+	p := NewProvider()
+	err := p.DeleteResource(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("ghp_test"), "testuser/nonexistent")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -332,8 +336,8 @@ func TestDeleteResource_NotFound(t *testing.T) {
 }
 
 func TestDeleteResource_InvalidExternalID(t *testing.T) {
-	p := NewProvider("")
-	err := p.DeleteResource(context.Background(), &domain.ProviderAccount{TokenEncrypted: "test"}, "invalid")
+	p := NewProvider()
+	err := p.DeleteResource(context.Background(), &domain.ProviderConnection{Endpoint: ""}, []byte("test"), "invalid")
 	if err == nil {
 		t.Fatal("expected error for invalid external_id")
 	}

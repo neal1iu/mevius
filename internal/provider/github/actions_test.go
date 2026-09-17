@@ -23,9 +23,9 @@ func TestActionsTriggerDeploy_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
 	slot := slotWithWorkflow("ci.yml", "main")
-	ev, err := p.TriggerDeploy(context.Background(), acct(), binding("testuser/my-repo"), slot)
+	ev, err := p.TriggerDeploy(context.Background(), conn(ts.URL), cred(), binding("testuser/my-repo"), slot)
 	if err != nil {
 		t.Fatalf("TriggerDeploy failed: %v", err)
 	}
@@ -42,9 +42,9 @@ func TestActionsTriggerDeploy_Success(t *testing.T) {
 }
 
 func TestActionsTriggerDeploy_NoWorkflowID(t *testing.T) {
-	p := NewProvider("")
+	p := NewProvider()
 	slot := &domain.Slot{Config: json.RawMessage(`{"name":"test"}`)}
-	_, err := p.TriggerDeploy(context.Background(), acct(), binding("testuser/my-repo"), slot)
+	_, err := p.TriggerDeploy(context.Background(), conn(""), cred(), binding("testuser/my-repo"), slot)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -64,9 +64,9 @@ func TestActionsTriggerDeploy_NotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
 	slot := slotWithWorkflow("nonexistent.yml", "main")
-	_, err := p.TriggerDeploy(context.Background(), acct(), binding("testuser/my-repo"), slot)
+	_, err := p.TriggerDeploy(context.Background(), conn(ts.URL), cred(), binding("testuser/my-repo"), slot)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -80,9 +80,9 @@ func TestActionsTriggerDeploy_NotFound(t *testing.T) {
 }
 
 func TestActionsTriggerDeploy_InvalidExternalID(t *testing.T) {
-	p := NewProvider("")
+	p := NewProvider()
 	slot := slotWithWorkflow("ci.yml", "main")
-	_, err := p.TriggerDeploy(context.Background(), acct(), binding("invalid"), slot)
+	_, err := p.TriggerDeploy(context.Background(), conn(""), cred(), binding("invalid"), slot)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -107,8 +107,8 @@ func TestActionsListDeployments_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	events, err := p.ListDeployments(context.Background(), acct(), binding("testuser/my-repo"))
+	p := NewProvider()
+	events, err := p.ListDeployments(context.Background(), conn(ts.URL), cred(), binding("testuser/my-repo"))
 	if err != nil {
 		t.Fatalf("ListDeployments failed: %v", err)
 	}
@@ -139,8 +139,8 @@ func TestActionsListDeployments_Empty(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	events, err := p.ListDeployments(context.Background(), acct(), binding("testuser/my-repo"))
+	p := NewProvider()
+	events, err := p.ListDeployments(context.Background(), conn(ts.URL), cred(), binding("testuser/my-repo"))
 	if err != nil {
 		t.Fatalf("ListDeployments failed: %v", err)
 	}
@@ -150,8 +150,8 @@ func TestActionsListDeployments_Empty(t *testing.T) {
 }
 
 func TestActionsListDeployments_InvalidExternalID(t *testing.T) {
-	p := NewProvider("")
-	_, err := p.ListDeployments(context.Background(), acct(), binding("invalid"))
+	p := NewProvider()
+	_, err := p.ListDeployments(context.Background(), conn(""), cred(), binding("invalid"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -199,8 +199,8 @@ func TestLogsTruncation(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	chunk, err := p.GetBuildLogs(context.Background(), acct(), binding("testuser/my-repo"), "42", 256*1024)
+	p := NewProvider()
+	chunk, err := p.GetBuildLogs(context.Background(), conn(ts.URL), cred(), binding("testuser/my-repo"), "42", 256*1024)
 	if err != nil {
 		t.Fatalf("GetBuildLogs failed: %v", err)
 	}
@@ -229,8 +229,8 @@ func TestLogsNotTruncated(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	chunk, err := p.GetBuildLogs(context.Background(), acct(), binding("testuser/my-repo"), "42", 256*1024)
+	p := NewProvider()
+	chunk, err := p.GetBuildLogs(context.Background(), conn(ts.URL), cred(), binding("testuser/my-repo"), "42", 256*1024)
 	if err != nil {
 		t.Fatalf("GetBuildLogs failed: %v", err)
 	}
@@ -248,8 +248,8 @@ func TestLogsExpired(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.GetBuildLogs(context.Background(), acct(), binding("testuser/my-repo"), "42", 256*1024)
+	p := NewProvider()
+	_, err := p.GetBuildLogs(context.Background(), conn(ts.URL), cred(), binding("testuser/my-repo"), "42", 256*1024)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -272,8 +272,8 @@ func TestLogsNotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.GetBuildLogs(context.Background(), acct(), binding("testuser/my-repo"), "99999", 256*1024)
+	p := NewProvider()
+	_, err := p.GetBuildLogs(context.Background(), conn(ts.URL), cred(), binding("testuser/my-repo"), "99999", 256*1024)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -287,8 +287,8 @@ func TestLogsNotFound(t *testing.T) {
 }
 
 func TestLogsInvalidDeployID(t *testing.T) {
-	p := NewProvider("")
-	_, err := p.GetBuildLogs(context.Background(), acct(), binding("testuser/my-repo"), "not-a-number", 256*1024)
+	p := NewProvider()
+	_, err := p.GetBuildLogs(context.Background(), conn(""), cred(), binding("testuser/my-repo"), "not-a-number", 256*1024)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -302,8 +302,8 @@ func TestLogsInvalidDeployID(t *testing.T) {
 }
 
 func TestLogsInvalidExternalID(t *testing.T) {
-	p := NewProvider("")
-	_, err := p.GetBuildLogs(context.Background(), acct(), binding("invalid"), "42", 256*1024)
+	p := NewProvider()
+	_, err := p.GetBuildLogs(context.Background(), conn(""), cred(), binding("invalid"), "42", 256*1024)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -330,6 +330,10 @@ func binding(externalID string) *domain.Binding {
 	return &domain.Binding{ExternalID: externalID}
 }
 
-func acct() *domain.ProviderAccount {
-	return &domain.ProviderAccount{TokenEncrypted: "ghp_test"}
+func conn(endpoint string) *domain.ProviderConnection {
+	return &domain.ProviderConnection{Endpoint: endpoint}
+}
+
+func cred() []byte {
+	return []byte("ghp_test")
 }

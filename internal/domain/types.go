@@ -167,6 +167,8 @@ type RepoConfig struct {
 	Name        string `json:"name"`
 	Private     bool   `json:"private"`
 	Description string `json:"description,omitempty"`
+	WorkflowID  string `json:"workflow_id,omitempty"`
+	WorkflowRef string `json:"workflow_ref,omitempty"`
 }
 
 func (c RepoConfig) Validate() error {

@@ -1,6 +1,3 @@
-// Command mevius is the single-binary control plane entrypoint. It wires the
-// configuration, structured logger, HTTP router and server together and shuts
-// down gracefully on SIGINT/SIGTERM.
 package main
 
 import (
@@ -61,21 +58,23 @@ func run() error {
 
 	q := store.New(db)
 
-	reg := provider.NewRegistry()
-	reg.Register(ghprov.NewProvider(provider.ProviderBaseURL("github")))
-	reg.Register(cfprov.NewProvider(provider.ProviderBaseURL("cloudflare")))
-	reg.Register(vcprov.NewProvider(provider.ProviderBaseURL("vercel")))
+reg := provider.NewRegistry()
+	reg.Register(ghprov.NewProvider())
+	reg.Register(cfprov.NewProvider())
+	reg.Register(vcprov.NewProvider())
 
-	svc := service.NewAccountService(q, masterKey, reg)
+	credStore := provider.NewCredentialStore(masterKey, q)
+
+	connSvc := service.NewConnectionService(q, masterKey, reg)
 	projectSvc := service.NewProjectService(q)
 	slotSvc := service.NewSlotService(q)
-	refreshEng := service.NewRefreshEngine(q, reg)
-	bindingSvc := service.NewBindingService(q, reg, refreshEng)
-	deploySvc := service.NewDeployService(q, reg, refreshEng)
+	refreshEng := service.NewRefreshEngine(q, reg, credStore)
+	bindingSvc := service.NewBindingService(q, reg, credStore, refreshEng)
+	deploySvc := service.NewDeployService(q, reg, credStore, refreshEng)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.NewRouter(cfg.APIToken, logger, svc, projectSvc, slotSvc, bindingSvc, deploySvc, q, reg, refreshEng),
+		Handler:           api.NewRouter(cfg.APIToken, logger, connSvc, projectSvc, slotSvc, bindingSvc, deploySvc, q, reg, refreshEng, credStore),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -86,7 +85,6 @@ func run() error {
 			errCh <- err
 		}
 	}()
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

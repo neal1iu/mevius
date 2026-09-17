@@ -18,7 +18,7 @@ import (
 	gogithub "github.com/google/go-github/v66/github"
 )
 
-func (p *GitHubProvider) TriggerDeploy(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
+func (p *GitHubProvider) TriggerDeploy(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
 	owner, repo := splitExternalID(binding.ExternalID)
 	if owner == "" || repo == "" {
 		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "invalid external_id: expected owner/repo"}
@@ -38,7 +38,7 @@ func (p *GitHubProvider) TriggerDeploy(ctx context.Context, account *domain.Prov
 		ref = "main"
 	}
 
-	client := p.ghClient(account.TokenEncrypted)
+	client := p.ghClient(string(credential), conn.Endpoint)
 	event := gogithub.CreateWorkflowDispatchEventRequest{Ref: ref}
 	_, err := client.Actions.CreateWorkflowDispatchEventByFileName(ctx, owner, repo, cfg.WorkflowID, event)
 	if err != nil {
@@ -48,13 +48,13 @@ func (p *GitHubProvider) TriggerDeploy(ctx context.Context, account *domain.Prov
 	return &domain.DeployEvent{Status: "queued"}, nil
 }
 
-func (p *GitHubProvider) ListDeployments(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding) ([]domain.DeployEvent, error) {
+func (p *GitHubProvider) ListDeployments(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding) ([]domain.DeployEvent, error) {
 	owner, repo := splitExternalID(binding.ExternalID)
 	if owner == "" || repo == "" {
 		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "invalid external_id: expected owner/repo"}
 	}
 
-	client := p.ghClient(account.TokenEncrypted)
+	client := p.ghClient(string(credential), conn.Endpoint)
 	opts := &gogithub.ListWorkflowRunsOptions{
 		ListOptions: gogithub.ListOptions{PerPage: 20},
 	}
@@ -82,7 +82,7 @@ func runStatus(run *gogithub.WorkflowRun) string {
 	return s
 }
 
-func (p *GitHubProvider) GetBuildLogs(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error) {
+func (p *GitHubProvider) GetBuildLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error) {
 	owner, repo := splitExternalID(binding.ExternalID)
 	if owner == "" || repo == "" {
 		return domain.LogChunk{}, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "invalid external_id: expected owner/repo"}
@@ -97,7 +97,7 @@ func (p *GitHubProvider) GetBuildLogs(ctx context.Context, account *domain.Provi
 		tail = 256 * 1024
 	}
 
-	client := p.ghClient(account.TokenEncrypted)
+	client := p.ghClient(string(credential), conn.Endpoint)
 	u := fmt.Sprintf("repos/%s/%s/actions/runs/%d/logs", owner, repo, runID)
 	req, err := client.NewRequest("GET", u, nil)
 	if err != nil {

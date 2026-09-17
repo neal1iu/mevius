@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -14,23 +15,25 @@ import (
 	gogithub "github.com/google/go-github/v66/github"
 )
 
-type GitHubProvider struct {
-	baseURL string
-}
+type GitHubProvider struct{}
 
-func NewProvider(baseURL string) *GitHubProvider {
-	return &GitHubProvider{baseURL: baseURL}
+func NewProvider() *GitHubProvider {
+	return &GitHubProvider{}
 }
 
 func (p *GitHubProvider) Type() string {
 	return "github"
 }
 
-func (p *GitHubProvider) ValidateCredentials(ctx context.Context, account *domain.ProviderAccount) (domain.AccountMeta, error) {
-	client := p.ghClient(account.TokenEncrypted)
+func (p *GitHubProvider) Descriptor() domain.ProviderDescriptor {
+	return provider.GitHubDescriptor
+}
+
+func (p *GitHubProvider) ValidateCredentials(ctx context.Context, conn *domain.ProviderConnection, credential []byte) (json.RawMessage, error) {
+	client := p.ghClient(string(credential), conn.Endpoint)
 	user, resp, err := client.Users.Get(ctx, "")
 	if err != nil {
-		return domain.AccountMeta{}, mapError(err)
+		return nil, mapError(err)
 	}
 
 	scopesHeader := resp.Response.Header.Get("X-OAuth-Scopes")
@@ -48,25 +51,29 @@ func (p *GitHubProvider) ValidateCredentials(ctx context.Context, account *domai
 	}
 
 	login := user.GetLogin()
-	meta := domain.AccountMeta{
-		AccountID: login,
-		Raw: map[string]any{
-			"login":  login,
-			"scopes": scopes,
-		},
+	raw := map[string]any{
+		"login":   login,
+		"scopes":  scopes,
+		"id":      user.GetID(),
+		"name":    user.GetName(),
+		"account_id": login,
 	}
 	if len(missing) > 0 {
-		meta.Raw["missing_scopes"] = missing
+		raw["missing_scopes"] = missing
 	}
-	return meta, nil
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: err.Error()}
+	}
+	return data, nil
 }
 
-func (p *GitHubProvider) ListExternalResources(ctx context.Context, account *domain.ProviderAccount, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
-	if kind != domain.ResourceKindRepo {
-		return nil, &provider.Error{Kind: provider.KindUnsupported, ProviderMsg: "github only supports repo resources"}
+func (p *GitHubProvider) ListExternalResources(ctx context.Context, conn *domain.ProviderConnection, credential []byte, product domain.ProductType) ([]domain.ExternalResource, error) {
+	if product != "github.repositories" {
+		return nil, &provider.Error{Kind: provider.KindUnsupported, ProviderMsg: "github only supports github.repositories product"}
 	}
 
-	client := p.ghClient(account.TokenEncrypted)
+	client := p.ghClient(string(credential), conn.Endpoint)
 	opts := &gogithub.RepositoryListOptions{
 		Visibility:  "all",
 		Affiliation: "owner",
@@ -90,13 +97,13 @@ func (p *GitHubProvider) ListExternalResources(ctx context.Context, account *dom
 	return resources, nil
 }
 
-func (p *GitHubProvider) GetResource(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+func (p *GitHubProvider) GetResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 	owner, repo := splitExternalID(externalID)
 	if owner == "" || repo == "" {
 		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "invalid external_id: expected owner/name"}
 	}
 
-	client := p.ghClient(account.TokenEncrypted)
+	client := p.ghClient(string(credential), conn.Endpoint)
 	r, _, err := client.Repositories.Get(ctx, owner, repo)
 	if err != nil {
 		return nil, mapError(err)
@@ -105,8 +112,8 @@ func (p *GitHubProvider) GetResource(ctx context.Context, account *domain.Provid
 	return &res, nil
 }
 
-func (p *GitHubProvider) CreateResource(ctx context.Context, account *domain.ProviderAccount, spec domain.ResourceSpec) (*domain.ExternalResource, error) {
-	client := p.ghClient(account.TokenEncrypted)
+func (p *GitHubProvider) CreateResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, spec domain.ResourceSpec) (*domain.ExternalResource, error) {
+	client := p.ghClient(string(credential), conn.Endpoint)
 	ghRepo := &gogithub.Repository{
 		Name:        gogithub.String(spec.Name),
 		Private:     gogithub.Bool(spec.Private),
@@ -120,13 +127,13 @@ func (p *GitHubProvider) CreateResource(ctx context.Context, account *domain.Pro
 	return &res, nil
 }
 
-func (p *GitHubProvider) DeleteResource(ctx context.Context, account *domain.ProviderAccount, externalID string) error {
+func (p *GitHubProvider) DeleteResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) error {
 	owner, repo := splitExternalID(externalID)
 	if owner == "" || repo == "" {
 		return &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "invalid external_id: expected owner/name"}
 	}
 
-	client := p.ghClient(account.TokenEncrypted)
+	client := p.ghClient(string(credential), conn.Endpoint)
 	_, err := client.Repositories.Delete(ctx, owner, repo)
 	if err != nil {
 		return mapError(err)
@@ -134,10 +141,10 @@ func (p *GitHubProvider) DeleteResource(ctx context.Context, account *domain.Pro
 	return nil
 }
 
-func (p *GitHubProvider) ghClient(token string) *gogithub.Client {
+func (p *GitHubProvider) ghClient(token, endpoint string) *gogithub.Client {
 	tc := &http.Client{Timeout: 15 * time.Second}
 	client := gogithub.NewClient(tc).WithAuthToken(token)
-	client.BaseURL = mustParseURL(p.baseURL)
+	client.BaseURL = mustParseURL(endpoint)
 	return client
 }
 
