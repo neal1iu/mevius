@@ -111,11 +111,11 @@ func storeConnectionToDomain(r store.ProviderConnection) domain.ProviderConnecti
 	json.Unmarshal([]byte(r.RemoteIdentityJson), &remoteIdentity)
 
 	return domain.ProviderConnection{
-		ID:              r.ID,
-		Provider:        domain.ProviderType(r.Provider),
-		Label:           r.Label,
-		Endpoint:        r.Endpoint,
-		RemoteIdentity:  remoteIdentity,
-		CreatedAt:       r.CreatedAt,
+		ID:             r.ID,
+		Provider:       domain.ProviderType(r.Provider),
+		Label:          r.Label,
+		Endpoint:       r.Endpoint,
+		RemoteIdentity: remoteIdentity,
+		CreatedAt:      r.CreatedAt,
 	}
 }

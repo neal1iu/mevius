@@ -20,6 +20,12 @@ import (
 	"mevius/internal/store"
 )
 
+type stubCredStore struct{}
+
+func (s *stubCredStore) Resolve(ctx context.Context, ref string) ([]byte, error) {
+	return []byte("test-credential"), nil
+}
+
 type captureHandler struct {
 	slog.Handler
 	mu  sync.Mutex
@@ -56,30 +62,34 @@ type stubAPIProvider struct {
 
 func (s *stubAPIProvider) Type() string { return "cloudflare" }
 
-func (s *stubAPIProvider) ValidateCredentials(ctx context.Context, account *domain.ProviderAccount) (domain.AccountMeta, error) {
-	return domain.AccountMeta{AccountID: "cf-123"}, nil
+func (s *stubAPIProvider) Descriptor() domain.ProviderDescriptor {
+	return provider.CloudflareDescriptor
 }
 
-func (s *stubAPIProvider) ListExternalResources(ctx context.Context, account *domain.ProviderAccount, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
+func (s *stubAPIProvider) ValidateCredentials(ctx context.Context, conn *domain.ProviderConnection, credential []byte) (json.RawMessage, error) {
+	return json.RawMessage(`{"account_id":"cf-123"}`), nil
+}
+
+func (s *stubAPIProvider) ListExternalResources(ctx context.Context, conn *domain.ProviderConnection, credential []byte, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
 	return []domain.ExternalResource{}, nil
 }
 
-func (s *stubAPIProvider) GetResource(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+func (s *stubAPIProvider) GetResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 	return &domain.ExternalResource{ExternalID: externalID, Meta: map[string]any{"key": "val"}}, nil
 }
 
-func (s *stubAPIProvider) TriggerDeploy(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
+func (s *stubAPIProvider) TriggerDeploy(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
 	if s.deployErr != nil {
 		return nil, s.deployErr
 	}
 	return &domain.DeployEvent{ID: "dep-1", Status: "queued", CreatedAt: "now"}, nil
 }
 
-func (s *stubAPIProvider) ListDeployments(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding) ([]domain.DeployEvent, error) {
+func (s *stubAPIProvider) ListDeployments(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding) ([]domain.DeployEvent, error) {
 	return nil, nil
 }
 
-func (s *stubAPIProvider) GetBuildLogs(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error) {
+func (s *stubAPIProvider) GetBuildLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error) {
 	return domain.LogChunk{}, nil
 }
 
@@ -102,10 +112,17 @@ func seedTestData(t *testing.T, q *store.Queries) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	if err := q.InsertProviderAccount(ctx, store.InsertProviderAccountParams{
-		ID: "acct-cf", Provider: "cloudflare", Label: "CF", EncryptedToken: "enc:cf", MetaJson: `{}`, CreatedAt: now,
+	if err := q.InsertProviderConnection(ctx, store.InsertProviderConnectionParams{
+		ID:                  "acct-cf",
+		Provider:            "cloudflare",
+		Label:               "CF",
+		Endpoint:            "",
+		ConfigJson:          "{}",
+		EncryptedCredential: "enc:cf",
+		RemoteIdentityJson:  `{}`,
+		CreatedAt:           now,
 	}); err != nil {
-		t.Fatalf("seed account: %v", err)
+		t.Fatalf("seed connection: %v", err)
 	}
 	if err := q.InsertProject(ctx, store.InsertProjectParams{
 		ID: "proj-1", Name: "test-project", Description: "", CreatedAt: now, UpdatedAt: now,
@@ -113,12 +130,12 @@ func seedTestData(t *testing.T, q *store.Queries) {
 		t.Fatalf("seed project: %v", err)
 	}
 	if err := q.InsertSlot(ctx, store.InsertSlotParams{
-		ID: "slot-1", ProjectID: "proj-1", Type: "static-site", Name: "site", ConfigJson: `{}`, CreatedAt: now,
+		ID: "slot-1", ProjectID: "proj-1", Role: "static-site", Name: "site", ConfigJson: `{}`, CreatedAt: now,
 	}); err != nil {
 		t.Fatalf("seed slot: %v", err)
 	}
 	if err := q.InsertBinding(ctx, store.InsertBindingParams{
-		ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-cf", Provider: "cloudflare",
+		ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-cf", Product: "cloudflare",
 		ExternalID: "ext-1", CachedMetaJson: `{}`, SyncStatus: "never", LastSyncedAt: nil, CreatedAt: now,
 	}); err != nil {
 		t.Fatalf("seed binding: %v", err)
@@ -133,16 +150,16 @@ func testRouter(t *testing.T, token string, logger *slog.Logger) http.Handler {
 	reg := provider.NewRegistry()
 	stub := &stubAPIProvider{}
 	reg.Register(stub)
-	eng := service.NewRefreshEngine(q, reg)
+	eng := service.NewRefreshEngine(q, reg, &stubCredStore{})
 
 	var key [32]byte
-	acctSvc := service.NewAccountService(q, key, reg)
+	connSvc := service.NewConnectionService(q, key, reg)
 	projSvc := service.NewProjectService(q)
 	slotSvc := service.NewSlotService(q)
-	bindingSvc := service.NewBindingService(q, reg, eng)
-	deploySvc := service.NewDeployService(q, reg, eng)
+	bindingSvc := service.NewBindingService(q, reg, &stubCredStore{}, eng)
+	deploySvc := service.NewDeployService(q, reg, &stubCredStore{}, eng)
 
-	return NewRouter(token, logger, acctSvc, projSvc, slotSvc, bindingSvc, deploySvc, q, reg, eng)
+	return NewRouter(token, logger, connSvc, projSvc, slotSvc, bindingSvc, deploySvc, q, reg, eng, &stubCredStore{})
 }
 
 func TestAuthMatrix(t *testing.T) {
@@ -159,17 +176,17 @@ func TestAuthMatrix(t *testing.T) {
 	}{
 		{name: "health no auth", path: "/api/v1/health", method: "GET", wantStatus: 200},
 
-		{name: "list accounts no token", path: "/api/v1/accounts", method: "GET", wantStatus: 401},
-		{name: "list accounts wrong token", path: "/api/v1/accounts", method: "GET", authHeader: "Bearer wrongtoken", wantStatus: 401},
-		{name: "list accounts correct token", path: "/api/v1/accounts", method: "GET", authHeader: "Bearer my-secret-token", wantStatus: 200},
+		{name: "list accounts no token", path: "/api/v1/connections", method: "GET", wantStatus: 401},
+		{name: "list accounts wrong token", path: "/api/v1/connections", method: "GET", authHeader: "Bearer wrongtoken", wantStatus: 401},
+		{name: "list accounts correct token", path: "/api/v1/connections", method: "GET", authHeader: "Bearer my-secret-token", wantStatus: 200},
 
 		{name: "list projects no token", path: "/api/v1/projects", method: "GET", wantStatus: 401},
 		{name: "list projects correct token", path: "/api/v1/projects", method: "GET", authHeader: "Bearer my-secret-token", wantStatus: 200},
 
-		{name: "discover no token", path: "/api/v1/accounts/acct-cf/discover?kind=repo", method: "GET", wantStatus: 401},
-		{name: "discover correct token", path: "/api/v1/accounts/acct-cf/discover?kind=repo", method: "GET", authHeader: "Bearer my-secret-token", wantStatus: 200},
+		{name: "discover no token", path: "/api/v1/connections/acct-cf/discover?product=cloudflare.pages", method: "GET", wantStatus: 401},
+		{name: "discover correct token", path: "/api/v1/connections/acct-cf/discover?product=cloudflare.pages", method: "GET", authHeader: "Bearer my-secret-token", wantStatus: 200},
 
-		{name: "bind no token", path: "/api/v1/slots/slot-1/bindings", method: "POST", body: `{"account_id":"acct-cf","external_id":"ext-x"}`, wantStatus: 401},
+		{name: "bind no token", path: "/api/v1/slots/slot-1/bindings", method: "POST", body: `{"connection_id":"acct-cf","product":"cloudflare.pages","external_id":"ext-x"}`, wantStatus: 401},
 		{name: "unbind no token", path: "/api/v1/bindings/bnd-1", method: "DELETE", wantStatus: 401},
 		{name: "refresh no token", path: "/api/v1/bindings/bnd-1/refresh", method: "POST", wantStatus: 401},
 
@@ -212,7 +229,7 @@ func TestCreateAccountValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("POST", "/api/v1/accounts", strings.NewReader(tt.body))
+			req := httptest.NewRequest("POST", "/api/v1/connections", strings.NewReader(tt.body))
 			req.Header.Set("Authorization", "Bearer my-secret-token")
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
@@ -251,7 +268,7 @@ func TestAccountNotFound(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	handler := testRouter(t, "my-secret-token", logger)
 
-	req := httptest.NewRequest("GET", "/api/v1/accounts/nonexistent", nil)
+	req := httptest.NewRequest("GET", "/api/v1/connections/nonexistent", nil)
 	req.Header.Set("Authorization", "Bearer my-secret-token")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -277,7 +294,7 @@ func TestDiscoverWithoutKind(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	handler := testRouter(t, "my-secret-token", logger)
 
-	req := httptest.NewRequest("GET", "/api/v1/accounts/acct-cf/discover", nil)
+	req := httptest.NewRequest("GET", "/api/v1/connections/acct-cf/discover", nil)
 	req.Header.Set("Authorization", "Bearer my-secret-token")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -306,7 +323,7 @@ func TestRedactionInAPIResponse(t *testing.T) {
 
 	leakedToken := "ghp_[A-Za-z0-9]{36}"
 	body := `{"provider":"cloudflare","label":"test","token":"` + leakedToken + `"}`
-	req := httptest.NewRequest("POST", "/api/v1/accounts", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/connections", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer my-secret-token")
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -331,17 +348,18 @@ func TestRedactionInDeployErrorResponse(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	q.InsertProviderAccount(ctx, store.InsertProviderAccountParams{
-		ID: "acct-cf", Provider: "cloudflare", Label: "CF", EncryptedToken: "enc:cf", MetaJson: `{}`, CreatedAt: now,
+	q.InsertProviderConnection(ctx, store.InsertProviderConnectionParams{
+		ID: "acct-cf", Provider: "cloudflare", Label: "CF", Endpoint: "",
+		ConfigJson: "{}", EncryptedCredential: "enc:cf", RemoteIdentityJson: `{}`, CreatedAt: now,
 	})
 	q.InsertProject(ctx, store.InsertProjectParams{
 		ID: "proj-1", Name: "tp", Description: "", CreatedAt: now, UpdatedAt: now,
 	})
 	q.InsertSlot(ctx, store.InsertSlotParams{
-		ID: "slot-1", ProjectID: "proj-1", Type: "static-site", Name: "s", ConfigJson: `{}`, CreatedAt: now,
+		ID: "slot-1", ProjectID: "proj-1", Role: "static-site", Name: "s", ConfigJson: `{}`, CreatedAt: now,
 	})
 	q.InsertBinding(ctx, store.InsertBindingParams{
-		ID: "bnd-dep", SlotID: "slot-1", AccountID: "acct-cf", Provider: "cloudflare",
+		ID: "bnd-dep", SlotID: "slot-1", ConnectionID: "acct-cf", Product: "cloudflare",
 		ExternalID: "ext-dep", CachedMetaJson: `{}`, SyncStatus: "never", LastSyncedAt: nil, CreatedAt: now,
 	})
 
@@ -350,15 +368,15 @@ func TestRedactionInDeployErrorResponse(t *testing.T) {
 		deployErr: &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "upstream error with ghp_[A-Za-z0-9]{36}"},
 	}
 	reg.Register(stub)
-	eng := service.NewRefreshEngine(q, reg)
+	eng := service.NewRefreshEngine(q, reg, &stubCredStore{})
 	var key [32]byte
-	acctSvc := service.NewAccountService(q, key, reg)
+	connSvc := service.NewConnectionService(q, key, reg)
 	projSvc := service.NewProjectService(q)
 	slotSvc := service.NewSlotService(q)
-	bindingSvc := service.NewBindingService(q, reg, eng)
-	deploySvc := service.NewDeployService(q, reg, eng)
+	bindingSvc := service.NewBindingService(q, reg, &stubCredStore{}, eng)
+	deploySvc := service.NewDeployService(q, reg, &stubCredStore{}, eng)
 
-	handler := NewRouter("my-secret-token", logger, acctSvc, projSvc, slotSvc, bindingSvc, deploySvc, q, reg, eng)
+	handler := NewRouter("my-secret-token", logger, connSvc, projSvc, slotSvc, bindingSvc, deploySvc, q, reg, eng, &stubCredStore{})
 
 	req := httptest.NewRequest("POST", "/api/v1/bindings/bnd-dep/deploys", nil)
 	req.Header.Set("Authorization", "Bearer my-secret-token")

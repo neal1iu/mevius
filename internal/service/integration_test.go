@@ -137,18 +137,19 @@ func TestProjectServiceGetDetail(t *testing.T) {
 	}
 
 	q.InsertSlot(ctx, store.InsertSlotParams{
-		ID: "slot-d1", ProjectID: p.ID, Type: "repo", Name: "repo1", ConfigJson: `{"name":"repo1"}`, CreatedAt: now,
+		ID: "slot-d1", ProjectID: p.ID, Role: "source", Name: "repo1", ConfigJson: `{"name":"repo1"}`, CreatedAt: now,
 	})
 	q.InsertSlot(ctx, store.InsertSlotParams{
-		ID: "slot-d2", ProjectID: p.ID, Type: "static-site", Name: "site1", ConfigJson: `{"name":"site1"}`, CreatedAt: now,
+		ID: "slot-d2", ProjectID: p.ID, Role: "frontend", Name: "site1", ConfigJson: `{"name":"site1"}`, CreatedAt: now,
 	})
 
-	q.InsertProviderAccount(ctx, store.InsertProviderAccountParams{
-		ID: "pa-det", Provider: "cloudflare", Label: "CF", EncryptedToken: "enc", MetaJson: `{}`, CreatedAt: now,
+	q.InsertProviderConnection(ctx, store.InsertProviderConnectionParams{
+		ID: "pa-det", Provider: "cloudflare", Label: "CF", Endpoint: "",
+		ConfigJson: "{}", EncryptedCredential: "enc", RemoteIdentityJson: `{}`, CreatedAt: now,
 	})
 
 	q.InsertBinding(ctx, store.InsertBindingParams{
-		ID: "b-det", SlotID: "slot-d1", AccountID: "pa-det", Provider: "cloudflare",
+		ID: "b-det", SlotID: "slot-d1", ConnectionID: "pa-det", Product: "cloudflare",
 		ExternalID: "ext-det", CachedMetaJson: `{}`, SyncStatus: "ok", LastSyncedAt: nil, CreatedAt: now,
 	})
 
@@ -203,7 +204,7 @@ func TestProjectServiceDelete(t *testing.T) {
 
 	_, err = svc.Get(ctx, p.ID)
 	if err == nil {
-		t.Error("expected error after delete")
+		t.Errorf("expected error after delete")
 	}
 }
 
@@ -215,15 +216,15 @@ func TestSlotServiceCreate(t *testing.T) {
 
 	p, _ := projSvc.Create(ctx, "slot-proj", "")
 
-	slot, err := slotSvc.Create(ctx, p.ID, string(domain.ResourceKindRepo), "my-repo", json.RawMessage(`{"name":"my-repo"}`))
+	slot, err := slotSvc.Create(ctx, p.ID, string(domain.SlotRoleSource), json.RawMessage(`{"name":"my-repo"}`))
 	if err != nil {
 		t.Fatalf("Create slot: %v", err)
 	}
-	if slot.Name != "my-repo" {
-		t.Errorf("expected name 'my-repo', got %q", slot.Name)
+	if slot.Name != "" {
+		t.Errorf("expected empty name, got %q", slot.Name)
 	}
-	if slot.Kind != domain.ResourceKindRepo {
-		t.Errorf("expected kind repo, got %s", slot.Kind)
+	if slot.Role != domain.SlotRoleSource {
+		t.Errorf("expected role source, got %s", slot.Role)
 	}
 }
 
@@ -235,184 +236,37 @@ func TestSlotServiceInvalidConfig(t *testing.T) {
 
 	p, _ := projSvc.Create(ctx, "invalid-slot-proj", "")
 
-	_, err := slotSvc.Create(ctx, p.ID, string(domain.ResourceKindRepo), "bad-repo", json.RawMessage(`{}`))
+	_, err := slotSvc.Create(ctx, p.ID, string(domain.SlotRoleSource), json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatal("expected error for invalid config")
 	}
 }
 
-func TestSlotServiceListByProject(t *testing.T) {
-	q := realDB(t)
-	projSvc := NewProjectService(q)
-	slotSvc := NewSlotService(q)
-	ctx := context.Background()
-
-	p, _ := projSvc.Create(ctx, "list-slot-proj", "")
-
-	slots, err := slotSvc.ListByProject(ctx, p.ID)
-	if err != nil {
-		t.Fatalf("ListByProject: %v", err)
-	}
-	if len(slots) != 0 {
-		t.Errorf("expected 0 slots, got %d", len(slots))
-	}
-
-	slotSvc.Create(ctx, p.ID, string(domain.ResourceKindDNSDomain), "dns1", json.RawMessage(`{}`))
-	slotSvc.Create(ctx, p.ID, string(domain.ResourceKindDNSDomain), "dns2", json.RawMessage(`{}`))
-
-	slots, err = slotSvc.ListByProject(ctx, p.ID)
-	if err != nil {
-		t.Fatalf("ListByProject: %v", err)
-	}
-	if len(slots) != 2 {
-		t.Errorf("expected 2 slots, got %d", len(slots))
-	}
-}
-
-func TestSlotServiceGet(t *testing.T) {
-	q := realDB(t)
-	projSvc := NewProjectService(q)
-	slotSvc := NewSlotService(q)
-	ctx := context.Background()
-
-	_, err := slotSvc.Get(ctx, "nonexistent")
-	if err == nil {
-		t.Fatal("expected error for nonexistent slot")
-	}
-
-	p, _ := projSvc.Create(ctx, "get-slot-proj", "")
-	s, _ := slotSvc.Create(ctx, p.ID, string(domain.ResourceKindCompute), "compute1", json.RawMessage(`{"name":"compute1"}`))
-
-	got, err := slotSvc.Get(ctx, s.ID)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got.Name != "compute1" {
-		t.Errorf("expected name 'compute1', got %q", got.Name)
-	}
-}
-
-func TestSlotServiceUpdate(t *testing.T) {
-	q := realDB(t)
-	projSvc := NewProjectService(q)
-	slotSvc := NewSlotService(q)
-	ctx := context.Background()
-
-	p, _ := projSvc.Create(ctx, "upd-slot-proj", "")
-	s, _ := slotSvc.Create(ctx, p.ID, string(domain.ResourceKindStaticSite), "old", json.RawMessage(`{"name":"old"}`))
-
-	updated, err := slotSvc.Update(ctx, s.ID, "new-name", json.RawMessage(`{"name":"new-name","framework":"react"}`))
-	if err != nil {
-		t.Fatalf("Update: %v", err)
-	}
-	_ = updated
-
-	got, err := slotSvc.Get(ctx, s.ID)
-	if err != nil {
-		t.Fatalf("Get after update: %v", err)
-	}
-	if got.Name != "new-name" {
-		t.Errorf("expected name 'new-name', got %q", got.Name)
-	}
-}
-
-func TestSlotServiceDelete(t *testing.T) {
-	q := realDB(t)
-	projSvc := NewProjectService(q)
-	slotSvc := NewSlotService(q)
-	ctx := context.Background()
-
-	err := slotSvc.Delete(ctx, "nonexistent")
-	if err == nil {
-		t.Fatal("expected error for deleting nonexistent slot")
-	}
-
-	p, _ := projSvc.Create(ctx, "del-slot-proj", "")
-	s, _ := slotSvc.Create(ctx, p.ID, string(domain.ResourceKindRepo), "del-me", json.RawMessage(`{"name":"del-me"}`))
-
-	err = slotSvc.Delete(ctx, s.ID)
-	if err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-
-	_, err = slotSvc.Get(ctx, s.ID)
-	if err == nil {
-		t.Error("expected error after delete")
-	}
-}
-
-func TestAccountServiceIntegration(t *testing.T) {
-	q := realDB(t)
-	reg := provider.NewRegistry()
-	reg.Register(&stubProviderSvc{
-		pType: "cloudflare",
-		validateMeta: domain.AccountMeta{AccountID: "cf-int-123"},
-	})
-	var key [32]byte
-	svc := NewAccountService(q, key, reg)
-	ctx := context.Background()
-
-	acct, err := svc.AddAccount(ctx, "cloudflare", "integration-test", "test-token-valid")
-	if err != nil {
-		t.Fatalf("AddAccount: %v", err)
-	}
-	if acct.Label != "integration-test" {
-		t.Errorf("expected label 'integration-test', got %q", acct.Label)
-	}
-	if acct.TokenEncrypted != "" {
-		t.Error("expected empty TokenEncrypted in response")
-	}
-
-	accounts, err := svc.ListAccounts(ctx)
-	if err != nil {
-		t.Fatalf("ListAccounts: %v", err)
-	}
-	if len(accounts) != 1 {
-		t.Errorf("expected 1 account, got %d", len(accounts))
-	}
-
-	got, err := svc.GetAccount(ctx, acct.ID)
-	if err != nil {
-		t.Fatalf("GetAccount: %v", err)
-	}
-	if got.ID != acct.ID {
-		t.Errorf("expected ID %s, got %s", acct.ID, got.ID)
-	}
-
-	err = svc.DeleteAccount(ctx, acct.ID)
-	if err != nil {
-		t.Fatalf("DeleteAccount: %v", err)
-	}
-
-	accounts, err = svc.ListAccounts(ctx)
-	if err != nil {
-		t.Fatalf("ListAccounts after delete: %v", err)
-	}
-	if len(accounts) != 0 {
-		t.Errorf("expected 0 accounts after delete, got %d", len(accounts))
-	}
-}
-
 type stubProviderSvc struct {
-	pType       string
+	pType        string
 	validateMeta domain.AccountMeta
 	validateErr  error
 }
 
 func (s *stubProviderSvc) Type() string { return s.pType }
 
-func (s *stubProviderSvc) ValidateCredentials(ctx context.Context, account *domain.ProviderAccount) (domain.AccountMeta, error) {
-	if s.validateErr != nil {
-		return domain.AccountMeta{}, s.validateErr
-	}
-	return s.validateMeta, nil
+func (s *stubProviderSvc) Descriptor() domain.ProviderDescriptor {
+	return domain.ProviderDescriptor{Type: domain.ProviderType(s.pType)}
 }
 
-func (s *stubProviderSvc) ListExternalResources(ctx context.Context, account *domain.ProviderAccount, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
+func (s *stubProviderSvc) ValidateCredentials(ctx context.Context, conn *domain.ProviderConnection, credential []byte) (json.RawMessage, error) {
+	if s.validateErr != nil {
+		return nil, s.validateErr
+	}
+	data, _ := json.Marshal(s.validateMeta)
+	return data, nil
+}
+
+func (s *stubProviderSvc) ListExternalResources(ctx context.Context, conn *domain.ProviderConnection, credential []byte, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
 	return nil, nil
 }
 
-func (s *stubProviderSvc) GetResource(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+func (s *stubProviderSvc) GetResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 	return &domain.ExternalResource{ExternalID: externalID, Meta: map[string]any{}}, nil
 }
 
@@ -425,45 +279,24 @@ type cfCountingProvider struct {
 
 func (c *cfCountingProvider) Type() string { return "cloudflare" }
 
-func (c *cfCountingProvider) ValidateCredentials(ctx context.Context, account *domain.ProviderAccount) (domain.AccountMeta, error) {
-	return c.cp.ValidateCredentials(ctx, account)
+func (c *cfCountingProvider) Descriptor() domain.ProviderDescriptor {
+	return domain.ProviderDescriptor{Type: domain.ProviderTypeCloudflare}
 }
 
-func (c *cfCountingProvider) ListExternalResources(ctx context.Context, account *domain.ProviderAccount, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
-	return c.cp.ListExternalResources(ctx, account, kind)
+func (c *cfCountingProvider) ValidateCredentials(ctx context.Context, conn *domain.ProviderConnection, credential []byte) (json.RawMessage, error) {
+	return c.cp.ValidateCredentials(ctx, conn, credential)
 }
 
-func (c *cfCountingProvider) GetResource(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
-	return c.cp.GetResource(ctx, account, externalID)
+func (c *cfCountingProvider) ListExternalResources(ctx context.Context, conn *domain.ProviderConnection, credential []byte, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
+	return c.cp.ListExternalResources(ctx, conn, credential, kind)
+}
+
+func (c *cfCountingProvider) GetResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
+	return c.cp.GetResource(ctx, conn, credential, externalID)
 }
 
 var _ provider.Provider = (*cfCountingProvider)(nil)
 var _ provider.Inspector = (*cfCountingProvider)(nil)
-
-func TestDiscoverResources(t *testing.T) {
-	q := realDB(t)
-	reg := provider.NewRegistry()
-	reg.Register(&stubProviderSvc{
-		pType: "cloudflare",
-		validateMeta: domain.AccountMeta{AccountID: "cf-123"},
-	})
-	eng := NewRefreshEngine(q, reg)
-	svc := NewBindingService(q, reg, eng)
-	ctx := context.Background()
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	q.InsertProviderAccount(ctx, store.InsertProviderAccountParams{
-		ID: "pa-disc", Provider: "cloudflare", Label: "CF", EncryptedToken: "enc", MetaJson: `{}`, CreatedAt: now,
-	})
-
-	resources, err := svc.Discover(ctx, "pa-disc", domain.ResourceKindRepo)
-	if err != nil {
-		t.Fatalf("Discover: %v", err)
-	}
-	if len(resources) != 0 {
-		t.Errorf("expected empty resources, got %d", len(resources))
-	}
-}
 
 func TestFanoutRefreshWithDB(t *testing.T) {
 	q := realDB(t)
@@ -476,14 +309,15 @@ func TestFanoutRefreshWithDB(t *testing.T) {
 		cp: cp,
 	}
 	reg.Register(cp2)
-	eng := NewRefreshEngine(q, reg)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	if err := q.InsertProviderAccount(ctx, store.InsertProviderAccountParams{
-		ID: "pa-fo", Provider: "cloudflare", Label: "CF", EncryptedToken: "enc", MetaJson: `{}`, CreatedAt: now,
+	if err := q.InsertProviderConnection(ctx, store.InsertProviderConnectionParams{
+		ID: "pa-fo", Provider: "cloudflare", Label: "CF", Endpoint: "",
+		ConfigJson: "{}", EncryptedCredential: "enc", RemoteIdentityJson: `{}`, CreatedAt: now,
 	}); err != nil {
-		t.Fatalf("InsertProviderAccount: %v", err)
+		t.Fatalf("InsertProviderConnection: %v", err)
 	}
 	if err := q.InsertProject(ctx, store.InsertProjectParams{
 		ID: "proj-fo", Name: "fo-proj", Description: "", CreatedAt: now, UpdatedAt: now,
@@ -493,13 +327,13 @@ func TestFanoutRefreshWithDB(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		if err := q.InsertSlot(ctx, store.InsertSlotParams{
 			ID: fmt.Sprintf("slot-fo-%d", i), ProjectID: "proj-fo",
-			Type: "repo", Name: fmt.Sprintf("fo-slot-%d", i), ConfigJson: `{}`, CreatedAt: now,
+			Role: "source", Name: fmt.Sprintf("fo-slot-%d", i), ConfigJson: `{}`, CreatedAt: now,
 		}); err != nil {
 			t.Fatalf("InsertSlot %d: %v", i, err)
 		}
 		if err := q.InsertBinding(ctx, store.InsertBindingParams{
 			ID: fmt.Sprintf("bnd-fo-%d", i), SlotID: fmt.Sprintf("slot-fo-%d", i),
-			AccountID: "pa-fo", Provider: "fake", ExternalID: "shared-ext",
+			ConnectionID: "pa-fo", Product: "fake", ExternalID: "shared-ext",
 			CachedMetaJson: `{}`, SyncStatus: "never", LastSyncedAt: nil, CreatedAt: now,
 		}); err != nil {
 			t.Fatalf("InsertBinding %d: %v", i, err)

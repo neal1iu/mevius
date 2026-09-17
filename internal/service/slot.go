@@ -15,10 +15,10 @@ import (
 )
 
 type SlotService struct {
-	q store.Querier
+	q *store.Queries
 }
 
-func NewSlotService(q store.Querier) *SlotService {
+func NewSlotService(q *store.Queries) *SlotService {
 	return &SlotService{q: q}
 }
 
@@ -26,8 +26,8 @@ var (
 	ErrSlotConfigInvalid = errors.New("slot config validation failed")
 )
 
-func (s *SlotService) Create(ctx context.Context, projectID string, role domain.SlotRole, name string, config json.RawMessage) (domain.Slot, error) {
-	if err := validateSlotConfig(role, config); err != nil {
+func (s *SlotService) Create(ctx context.Context, projectID, role string, config json.RawMessage) (domain.Slot, error) {
+	if err := validateSlotConfig(domain.SlotRole(role), config); err != nil {
 		return domain.Slot{}, fmt.Errorf("%w: %w", ErrSlotConfigInvalid, err)
 	}
 
@@ -41,8 +41,8 @@ func (s *SlotService) Create(ctx context.Context, projectID string, role domain.
 	err := s.q.InsertSlot(ctx, store.InsertSlotParams{
 		ID:         id,
 		ProjectID:  projectID,
-		Role:       string(role),
-		Name:       name,
+		Role:       role,
+		Name:       "",
 		ConfigJson: configStr,
 		CreatedAt:  now,
 	})
@@ -53,8 +53,8 @@ func (s *SlotService) Create(ctx context.Context, projectID string, role domain.
 	return domain.Slot{
 		ID:        id,
 		ProjectID: projectID,
-		Name:      name,
-		Role:      role,
+		Name:      "",
+		Role:      domain.SlotRole(role),
 		Config:    config,
 		CreatedAt: now,
 	}, nil
@@ -116,14 +116,12 @@ func (s *SlotService) Update(ctx context.Context, id, name string, config json.R
 		return domain.Slot{}, fmt.Errorf("update slot: %w", err)
 	}
 
-	return domain.Slot{
-		ID:        id,
-		ProjectID: existing.ProjectID,
-		Name:      updateName,
-		Role:      domain.SlotRole(existing.Role),
-		Config:    json.RawMessage(configStr),
-		CreatedAt: existing.CreatedAt,
-	}, nil
+	updated := storeSlotToDomain(existing)
+	updated.Name = updateName
+	if config != nil {
+		updated.Config = config
+	}
+	return updated, nil
 }
 
 func (s *SlotService) Delete(ctx context.Context, id string) error {
@@ -142,29 +140,75 @@ func (s *SlotService) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func storeSlotToDomain(s store.Slot) domain.Slot {
+	return domain.Slot{
+		ID:        s.ID,
+		ProjectID: s.ProjectID,
+		Name:      s.Name,
+		Role:      domain.SlotRole(s.Role),
+		Config:    []byte(s.ConfigJson),
+		CreatedAt: s.CreatedAt,
+	}
+}
+
+func storeSlotToPtr(s store.Slot) *domain.Slot {
+	ds := &domain.Slot{
+		ID:        s.ID,
+		ProjectID: s.ProjectID,
+		Name:      s.Name,
+		Role:      domain.SlotRole(s.Role),
+		CreatedAt: s.CreatedAt,
+	}
+	if s.ConfigJson != "" && s.ConfigJson != "{}" {
+		ds.Config = json.RawMessage(s.ConfigJson)
+	}
+	return ds
+}
+
 func validateSlotConfig(role domain.SlotRole, config json.RawMessage) error {
-	switch role {
-	case domain.SlotRoleSource:
+	kind, ok := roleResourceKind(role)
+	if !ok {
+		return fmt.Errorf("unknown slot role: %s", role)
+	}
+	switch kind {
+	case domain.ResourceKindRepository:
 		var cfg domain.RepoConfig
 		if err := json.Unmarshal(config, &cfg); err != nil {
 			return fmt.Errorf("invalid repo config: %w", err)
 		}
 		return cfg.Validate()
-	case domain.SlotRoleBackend:
+	case domain.ResourceKindWorker:
 		var cfg domain.ComputeConfig
 		if err := json.Unmarshal(config, &cfg); err != nil {
 			return fmt.Errorf("invalid compute config: %w", err)
 		}
 		return cfg.Validate()
-	case domain.SlotRoleFrontend:
+	case domain.ResourceKindStaticSite:
 		var cfg domain.StaticSiteConfig
 		if err := json.Unmarshal(config, &cfg); err != nil {
 			return fmt.Errorf("invalid static site config: %w", err)
 		}
 		return cfg.Validate()
-	case domain.SlotRoleDNS:
+	case domain.ResourceKindDNSZone:
 		return domain.DnsDomainConfig{}.Validate()
 	default:
-		return fmt.Errorf("unknown slot role: %s", role)
+		return fmt.Errorf("unknown resource kind: %s", kind)
+	}
+}
+
+func roleResourceKind(role domain.SlotRole) (domain.ResourceKind, bool) {
+	switch role {
+	case domain.SlotRoleSource:
+		return domain.ResourceKindRepository, true
+	case domain.SlotRoleFrontend:
+		return domain.ResourceKindStaticSite, true
+	case domain.SlotRoleBackend:
+		return domain.ResourceKindWorker, true
+	case domain.SlotRoleDatabase:
+		return domain.ResourceKindWorker, true
+	case domain.SlotRoleDNS:
+		return domain.ResourceKindDNSZone, true
+	default:
+		return "", false
 	}
 }

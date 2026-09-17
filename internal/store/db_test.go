@@ -22,7 +22,7 @@ func TestMigrations(t *testing.T) {
 
 	ctx := context.Background()
 
-	tables := []string{"provider_account", "project", "slot", "binding"}
+	tables := []string{"provider_connection", "project", "slot", "binding"}
 	for _, tbl := range tables {
 		var count int
 		row := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", tbl)
@@ -34,21 +34,12 @@ func TestMigrations(t *testing.T) {
 		}
 	}
 
-	var idxCount int
-	row := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_binding_account_external'")
-	if err := row.Scan(&idxCount); err != nil {
-		t.Fatalf("check index: %v", err)
-	}
-	if idxCount != 1 {
-		t.Error("index idx_binding_account_external not found")
-	}
-
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = db.ExecContext(ctx, `INSERT INTO provider_account (id, provider, label, encrypted_token, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		"pa-1", "cloudflare", "CF Account", "env:v1:abc:def", `{"account_id":"123"}`, now)
+	_, err = db.ExecContext(ctx, `INSERT INTO provider_connection (id, provider, label, endpoint, config_json, encrypted_credential, remote_identity_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"pa-1", "cloudflare", "CF Account", "", "{}", "env:v1:abc:def", `{"account_id":"123"}`, now)
 	if err != nil {
-		t.Fatalf("insert provider_account: %v", err)
+		t.Fatalf("insert provider_connection: %v", err)
 	}
 
 	_, err = db.ExecContext(ctx, `INSERT INTO project (id, name, description, created_at) VALUES (?, ?, ?, ?)`,
@@ -57,19 +48,19 @@ func TestMigrations(t *testing.T) {
 		t.Fatalf("insert project: %v", err)
 	}
 
-	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, type, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		"slot-1", "proj-1", "repo", "test-slot", `{}`, now)
 	if err != nil {
 		t.Fatalf("insert slot: %v", err)
 	}
 
-	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"b-1", "slot-1", "pa-1", "cloudflare", "ext-1", `{}`, "ok", now, now)
 	if err != nil {
 		t.Fatalf("insert binding 1: %v", err)
 	}
 
-	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"b-2", "slot-1", "pa-1", "cloudflare", "ext-1", `{}`, "ok", now, now)
 	if err == nil {
 		t.Error("expected UNIQUE constraint error for duplicate binding, got nil")
@@ -95,17 +86,17 @@ func TestConcurrentRW(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = db.ExecContext(ctx, `INSERT INTO provider_account (id, provider, label, encrypted_token, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		"pa-c1", "github", "GH Account", "env:v1:abc:def", `{}`, now)
+	_, err = db.ExecContext(ctx, `INSERT INTO provider_connection (id, provider, label, endpoint, config_json, encrypted_credential, remote_identity_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"pa-c1", "github", "GH Account", "", "{}", "env:v1:abc:def", `{}`, now)
 	if err != nil {
-		t.Fatalf("seed provider_account: %v", err)
+		t.Fatalf("seed provider_connection: %v", err)
 	}
 	_, err = db.ExecContext(ctx, `INSERT INTO project (id, name, description, created_at) VALUES (?, ?, ?, ?)`,
 		"proj-c1", "concurrent-project", "", now)
 	if err != nil {
 		t.Fatalf("seed project: %v", err)
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, type, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		"slot-c1", "proj-c1", "repo", "concurrent-slot", `{}`, now)
 	if err != nil {
 		t.Fatalf("seed slot: %v", err)
@@ -131,14 +122,21 @@ func TestConcurrentRW(t *testing.T) {
 	}
 
 	wg.Add(1)
-	go func() {
+go func() {
 		defer wg.Done()
 		bindingID := 0
 		for start := time.Now(); time.Since(start) < 10*time.Second; {
 			bindingID++
 			id := fmt.Sprintf("b-c%d", bindingID)
-			_, err := db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				id, "slot-c1", "pa-c1", "github", fmt.Sprintf("ext-%d", bindingID), `{}`, "ok", now, now)
+			slotID := fmt.Sprintf("slot-cw-%d", bindingID)
+			_, err := db.ExecContext(ctx, `INSERT INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+				slotID, "proj-c1", "repo", "cs", `{}`, now)
+			if err != nil {
+				errCh <- fmt.Errorf("writer create slot %s: %v", slotID, err)
+				return
+			}
+			_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				id, slotID, "pa-c1", "github", fmt.Sprintf("ext-%d", bindingID), `{}`, "ok", now, now)
 			if err != nil {
 				errCh <- fmt.Errorf("writer insert %s: %v", id, err)
 				return
@@ -189,32 +187,34 @@ func TestQueries(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	err = q.InsertProviderAccount(ctx, InsertProviderAccountParams{
-		ID:             "pa-q1",
-		Provider:       "vercel",
-		Label:          "Vercel Account",
-		EncryptedToken: "env:v1:key:nonce:ct",
-		MetaJson:       `{"team_id":"team_abc"}`,
-		CreatedAt:      now,
+	err = q.InsertProviderConnection(ctx, InsertProviderConnectionParams{
+		ID:                  "pa-q1",
+		Provider:            "vercel",
+		Label:               "Vercel Account",
+		Endpoint:            "",
+		ConfigJson:          "{}",
+		EncryptedCredential: "env:v1:key:nonce:ct",
+		RemoteIdentityJson:  `{"team_id":"team_abc"}`,
+		CreatedAt:           now,
 	})
 	if err != nil {
-		t.Fatalf("InsertProviderAccount: %v", err)
+		t.Fatalf("InsertProviderConnection: %v", err)
 	}
 
-	pa, err := q.GetProviderAccount(ctx, "pa-q1")
+	pa, err := q.GetProviderConnection(ctx, "pa-q1")
 	if err != nil {
-		t.Fatalf("GetProviderAccount: %v", err)
+		t.Fatalf("GetProviderConnection: %v", err)
 	}
 	if pa.Label != "Vercel Account" {
 		t.Errorf("expected label 'Vercel Account', got %q", pa.Label)
 	}
 
-	pas, err := q.ListProviderAccounts(ctx)
+	pas, err := q.ListProviderConnections(ctx)
 	if err != nil {
-		t.Fatalf("ListProviderAccounts: %v", err)
+		t.Fatalf("ListProviderConnections: %v", err)
 	}
 	if len(pas) != 1 {
-		t.Errorf("expected 1 provider_account, got %d", len(pas))
+		t.Errorf("expected 1 provider_connection, got %d", len(pas))
 	}
 
 	err = q.InsertProject(ctx, InsertProjectParams{
@@ -246,7 +246,7 @@ func TestQueries(t *testing.T) {
 	err = q.InsertSlot(ctx, InsertSlotParams{
 		ID:         "slot-q1",
 		ProjectID:  "proj-q1",
-		Type:       "static-site",
+		Role:       "static-site",
 		Name:       "query-slot",
 		ConfigJson: `{"build_command":"npm run build"}`,
 		CreatedAt:  now,
@@ -259,8 +259,8 @@ func TestQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSlot: %v", err)
 	}
-	if slot.Type != "static-site" {
-		t.Errorf("expected type 'static-site', got %q", slot.Type)
+	if slot.Role != "static-site" {
+		t.Errorf("expected role 'static-site', got %q", slot.Role)
 	}
 
 	slots, err := q.ListSlotsByProject(ctx, "proj-q1")
@@ -282,8 +282,8 @@ func TestQueries(t *testing.T) {
 	err = q.InsertBinding(ctx, InsertBindingParams{
 		ID:             "b-q1",
 		SlotID:         "slot-q1",
-		AccountID:      "pa-q1",
-		Provider:       "vercel",
+		ConnectionID:   "pa-q1",
+		Product:        "vercel",
 		ExternalID:     "ext-query-1",
 		CachedMetaJson: `{"deploy_id":"d_abc"}`,
 		SyncStatus:     "never",
@@ -311,8 +311,8 @@ func TestQueries(t *testing.T) {
 	}
 
 	fanout, err := q.FanOutBindingsByAccountExternal(ctx, FanOutBindingsByAccountExternalParams{
-		AccountID:  "pa-q1",
-		ExternalID: "ext-query-1",
+		ConnectionID: "pa-q1",
+		ExternalID:   "ext-query-1",
 	})
 	if err != nil {
 		t.Fatalf("FanOutBindingsByAccountExternal: %v", err)
@@ -358,9 +358,9 @@ func TestQueries(t *testing.T) {
 		t.Fatalf("DeleteProject: %v", err)
 	}
 
-	err = q.DeleteProviderAccount(ctx, "pa-q1")
+	err = q.DeleteProviderConnection(ctx, "pa-q1")
 	if err != nil {
-		t.Fatalf("DeleteProviderAccount: %v", err)
+		t.Fatalf("DeleteProviderConnection: %v", err)
 	}
 
 	projects2, err := q.ListProjects(ctx)
@@ -382,8 +382,8 @@ func TestCascadeDelete(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = db.ExecContext(ctx, `INSERT INTO provider_account (id, provider, label, encrypted_token, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		"pa-cd1", "cloudflare", "CF", "env:v1:k:n:c", `{}`, now)
+	_, err = db.ExecContext(ctx, `INSERT INTO provider_connection (id, provider, label, endpoint, config_json, encrypted_credential, remote_identity_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"pa-cd1", "cloudflare", "CF", "", "{}", "env:v1:k:n:c", `{}`, now)
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -392,12 +392,12 @@ func TestCascadeDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, type, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		"slot-cd1", "proj-cd1", "dns-domain", "cascade-slot", `{}`, now)
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"b-cd1", "slot-cd1", "pa-cd1", "cloudflare", "ext-cd1", `{}`, "ok", now, now)
 	if err != nil {
 		t.Fatalf("seed: %v", err)
@@ -426,9 +426,9 @@ func TestCascadeDelete(t *testing.T) {
 		t.Error("expected binding to be cascade-deleted")
 	}
 
-	_, err = db.ExecContext(ctx, `DELETE FROM provider_account WHERE id = ?`, "pa-cd1")
+	_, err = db.ExecContext(ctx, `DELETE FROM provider_connection WHERE id = ?`, "pa-cd1")
 	if err != nil {
-		t.Fatalf("delete provider_account: %v", err)
+		t.Fatalf("delete provider_connection: %v", err)
 	}
 }
 
@@ -442,19 +442,19 @@ func TestCheckConstraints(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = db.ExecContext(ctx, `INSERT INTO provider_account (id, provider, label, encrypted_token, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		"pa-bad", "invalid_provider", "Bad", "env:v1:k:n:c", `{}`, now)
+	_, err = db.ExecContext(ctx, `INSERT INTO provider_connection (id, provider, label, endpoint, config_json, encrypted_credential, remote_identity_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"pa-bad", "invalid_provider", "Bad", "", "{}", "env:v1:k:n:c", `{}`, now)
 	if err == nil {
 		t.Error("expected CHECK constraint error for invalid provider, got nil")
 	}
 
-	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, type, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		"slot-bad", "proj-nonexistent", "invalid_type", "Bad", `{}`, now)
 	if err == nil {
 		t.Error("expected CHECK constraint error for invalid slot type, got nil")
 	}
 
-	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"b-bad", "slot-nonexistent", "pa-nonexistent", "cloudflare", "ext-bad", `{}`, "invalid_status", now, now)
 	if err == nil {
 		t.Error("expected CHECK constraint error for invalid sync_status, got nil")
@@ -513,7 +513,7 @@ func TestOpenFileDB(t *testing.T) {
 		}
 		tableNames = append(tableNames, name)
 	}
-	expected := []string{"binding", "project", "provider_account", "slot"}
+	expected := []string{"binding", "project", "provider_connection", "slot"}
 	if len(tableNames) != len(expected) {
 		t.Errorf("expected %d business tables, got %d: %v", len(expected), len(tableNames), tableNames)
 	} else {
@@ -551,7 +551,7 @@ func TestIdempotentMigration(t *testing.T) {
 		}
 		tableNames = append(tableNames, name)
 	}
-	expected := []string{"binding", "project", "provider_account", "slot"}
+	expected := []string{"binding", "project", "provider_connection", "slot"}
 	if len(tableNames) != len(expected) {
 		t.Errorf("expected %d business tables after re-migration, got %d: %v", len(expected), len(tableNames), tableNames)
 	} else {
@@ -573,8 +573,8 @@ func TestCascadeDeleteAccount(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = db.ExecContext(ctx, `INSERT INTO provider_account (id, provider, label, encrypted_token, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		"pa-cda1", "cloudflare", "CF", "env:v1:k:n:c", `{}`, now)
+	_, err = db.ExecContext(ctx, `INSERT INTO provider_connection (id, provider, label, endpoint, config_json, encrypted_credential, remote_identity_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"pa-cda1", "cloudflare", "CF", "", "{}", "env:v1:k:n:c", `{}`, now)
 	if err != nil {
 		t.Fatalf("seed account: %v", err)
 	}
@@ -583,18 +583,18 @@ func TestCascadeDeleteAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed project: %v", err)
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, type, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		"slot-cda1", "proj-cda1", "repo", "slot-cda", `{}`, now)
 	if err != nil {
 		t.Fatalf("seed slot: %v", err)
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"b-cda1", "slot-cda1", "pa-cda1", "cloudflare", "ext-cda1", `{}`, "ok", now, now)
 	if err != nil {
 		t.Fatalf("seed binding: %v", err)
 	}
 
-	_, err = db.ExecContext(ctx, `DELETE FROM provider_account WHERE id = ?`, "pa-cda1")
+	_, err = db.ExecContext(ctx, `DELETE FROM provider_connection WHERE id = ?`, "pa-cda1")
 	if err != nil {
 		t.Fatalf("delete account: %v", err)
 	}
@@ -619,7 +619,7 @@ func TestForeignKeyEnforcement(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"b-fk1", "slot-nonexistent", "pa-nonexistent", "cloudflare", "ext-fk1", `{}`, "never", nil, now)
 	if err == nil {
 		var fkEnabled int
@@ -720,7 +720,7 @@ func TestUpdateSlot(t *testing.T) {
 	}
 
 	err = q.InsertSlot(ctx, InsertSlotParams{
-		ID: "sl-upd", ProjectID: "p-sl", Type: "repo", Name: "orig", ConfigJson: `{"name":"repo"}`, CreatedAt: now,
+		ID: "sl-upd", ProjectID: "p-sl", Role: "repo", Name: "orig", ConfigJson: `{"name":"repo"}`, CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("InsertSlot: %v", err)
@@ -755,8 +755,8 @@ func TestListBindingsBySlots(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = db.ExecContext(ctx, `INSERT INTO provider_account (id, provider, label, encrypted_token, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		"pa-lbs", "cloudflare", "CF", "env:v1:k:n:c", `{}`, now)
+	_, err = db.ExecContext(ctx, `INSERT INTO provider_connection (id, provider, label, endpoint, config_json, encrypted_credential, remote_identity_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"pa-lbs", "cloudflare", "CF", "", "{}", "env:v1:k:n:c", `{}`, now)
 	if err != nil {
 		t.Fatalf("seed account: %v", err)
 	}
@@ -765,32 +765,44 @@ func TestListBindingsBySlots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed project: %v", err)
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, type, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		"slot-a", "proj-lbs", "repo", "a", `{}`, now)
 	if err != nil {
 		t.Fatalf("seed slot a: %v", err)
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, type, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		"slot-b", "proj-lbs", "static-site", "b", `{}`, now)
 	if err != nil {
 		t.Fatalf("seed slot b: %v", err)
 	}
 	for i := 0; i < 3; i++ {
-		_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			fmt.Sprintf("b-lbs-%d", i), "slot-a", "pa-lbs", "cloudflare", fmt.Sprintf("ext-%d", i), `{}`, "ok", now, now)
+		slotID := fmt.Sprintf("slot-a-%d", i)
+		_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			slotID, "proj-lbs", "repo", "a", `{}`, now)
+		if err != nil {
+			t.Fatalf("seed slot %s: %v", slotID, err)
+		}
+		_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			fmt.Sprintf("b-lbs-%d", i), slotID, "pa-lbs", "cloudflare", fmt.Sprintf("ext-%d", i), `{}`, "ok", now, now)
 		if err != nil {
 			t.Fatalf("seed binding %d: %v", i, err)
 		}
 	}
 	for i := 0; i < 2; i++ {
-		_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			fmt.Sprintf("b-lbs-b-%d", i), "slot-b", "pa-lbs", "cloudflare", fmt.Sprintf("ext-b-%d", i), `{}`, "ok", now, now)
+		slotID := fmt.Sprintf("slot-b-%d", i)
+		_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			slotID, "proj-lbs", "static-site", "b", `{}`, now)
+		if err != nil {
+			t.Fatalf("seed slot %s: %v", slotID, err)
+		}
+		_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			fmt.Sprintf("b-lbs-b-%d", i), fmt.Sprintf("slot-b-%d", i), "pa-lbs", "cloudflare", fmt.Sprintf("ext-b-%d", i), `{}`, "ok", now, now)
 		if err != nil {
 			t.Fatalf("seed binding b %d: %v", i, err)
 		}
 	}
 
-	bindings, err := q.ListBindingsBySlots(ctx, []string{"slot-a", "slot-b"})
+	bindings, err := q.ListBindingsBySlots(ctx, []string{"slot-a-0", "slot-a-1", "slot-a-2", "slot-b-0", "slot-b-1"})
 	if err != nil {
 		t.Fatalf("ListBindingsBySlots: %v", err)
 	}

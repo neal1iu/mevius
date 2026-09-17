@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -15,20 +16,26 @@ import (
 	"mevius/internal/store"
 )
 
+type stubCredStore struct{}
+
+func (s *stubCredStore) Resolve(ctx context.Context, ref string) ([]byte, error) {
+	return []byte("test-credential"), nil
+}
+
 type fakeQuerier struct {
-	mu             sync.Mutex
-	bindings       map[string]store.Binding
-	accounts       map[string]store.ProviderAccount
-	slots          map[string]store.Slot
+	mu               sync.Mutex
+	bindings         map[string]store.Binding
+	connections      map[string]store.ProviderConnection
+	slots            map[string]store.Slot
 	insertBindingErr error
-	updateStatusFn func(ctx context.Context, arg store.UpdateBindingSyncStatusParams) error
+	updateStatusFn   func(ctx context.Context, arg store.UpdateBindingSyncStatusParams) error
 }
 
 func newFakeQuerier() *fakeQuerier {
 	return &fakeQuerier{
-		bindings: make(map[string]store.Binding),
-		accounts: make(map[string]store.ProviderAccount),
-		slots:    make(map[string]store.Slot),
+		bindings:    make(map[string]store.Binding),
+		connections: make(map[string]store.ProviderConnection),
+		slots:       make(map[string]store.Slot),
 	}
 }
 
@@ -38,9 +45,9 @@ func (f *fakeQuerier) addBinding(b store.Binding) {
 	f.mu.Unlock()
 }
 
-func (f *fakeQuerier) addAccount(a store.ProviderAccount) {
+func (f *fakeQuerier) addConnection(a store.ProviderConnection) {
 	f.mu.Lock()
-	f.accounts[a.ID] = a
+	f.connections[a.ID] = a
 	f.mu.Unlock()
 }
 
@@ -61,7 +68,7 @@ func (f *fakeQuerier) FanOutBindingsByAccountExternal(ctx context.Context, arg s
 	defer f.mu.Unlock()
 	var result []store.Binding
 	for _, b := range f.bindings {
-		if b.AccountID == arg.AccountID && b.ExternalID == arg.ExternalID {
+		if b.ConnectionID == arg.ConnectionID && b.ExternalID == arg.ExternalID {
 			result = append(result, b)
 		}
 	}
@@ -78,14 +85,18 @@ func (f *fakeQuerier) GetBinding(ctx context.Context, id string) (store.Binding,
 	return b, nil
 }
 
-func (f *fakeQuerier) GetProviderAccount(ctx context.Context, id string) (store.ProviderAccount, error) {
+func (f *fakeQuerier) GetProviderConnection(ctx context.Context, id string) (store.ProviderConnection, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	a, ok := f.accounts[id]
+	a, ok := f.connections[id]
 	if !ok {
-		return store.ProviderAccount{}, sql.ErrNoRows
+		return store.ProviderConnection{}, sql.ErrNoRows
 	}
 	return a, nil
+}
+
+func (f *fakeQuerier) GetProviderConnectionCredential(ctx context.Context, id string) (string, error) {
+	return "encrypted", nil
 }
 
 func (f *fakeQuerier) UpdateBindingSyncStatus(ctx context.Context, arg store.UpdateBindingSyncStatusParams) error {
@@ -105,12 +116,16 @@ func (f *fakeQuerier) UpdateBindingSyncStatus(ctx context.Context, arg store.Upd
 	return nil
 }
 
-func (f *fakeQuerier) DeleteBinding(ctx context.Context, id string) error    { return nil }
-func (f *fakeQuerier) DeleteProject(ctx context.Context, id string) error    { return nil }
-func (f *fakeQuerier) DeleteProviderAccount(ctx context.Context, id string) error { return nil }
-func (f *fakeQuerier) DeleteSlot(ctx context.Context, id string) error        { return nil }
-func (f *fakeQuerier) GetProject(ctx context.Context, id string) (store.Project, error) { return store.Project{}, nil }
-func (f *fakeQuerier) GetProjectByName(ctx context.Context, name string) (store.Project, error) { return store.Project{}, nil }
+func (f *fakeQuerier) DeleteBinding(ctx context.Context, id string) error          { return nil }
+func (f *fakeQuerier) DeleteProject(ctx context.Context, id string) error          { return nil }
+func (f *fakeQuerier) DeleteProviderConnection(ctx context.Context, id string) error { return nil }
+func (f *fakeQuerier) DeleteSlot(ctx context.Context, id string) error              { return nil }
+func (f *fakeQuerier) GetProject(ctx context.Context, id string) (store.Project, error) {
+	return store.Project{}, nil
+}
+func (f *fakeQuerier) GetProjectByName(ctx context.Context, name string) (store.Project, error) {
+	return store.Project{}, nil
+}
 func (f *fakeQuerier) GetSlot(ctx context.Context, id string) (store.Slot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -127,24 +142,40 @@ func (f *fakeQuerier) InsertBinding(ctx context.Context, arg store.InsertBinding
 		return f.insertBindingErr
 	}
 	f.bindings[arg.ID] = store.Binding{
-		ID: arg.ID, SlotID: arg.SlotID, AccountID: arg.AccountID,
-		Provider: arg.Provider, ExternalID: arg.ExternalID,
+		ID: arg.ID, SlotID: arg.SlotID, ConnectionID: arg.ConnectionID,
+		Product: arg.Product, ExternalID: arg.ExternalID,
 		CachedMetaJson: arg.CachedMetaJson, SyncStatus: arg.SyncStatus,
 		LastSyncedAt: arg.LastSyncedAt, CreatedAt: arg.CreatedAt,
 	}
 	return nil
 }
-func (f *fakeQuerier) InsertProject(ctx context.Context, arg store.InsertProjectParams) error { return nil }
-func (f *fakeQuerier) InsertProviderAccount(ctx context.Context, arg store.InsertProviderAccountParams) error { return nil }
+func (f *fakeQuerier) InsertProject(ctx context.Context, arg store.InsertProjectParams) error {
+	return nil
+}
+func (f *fakeQuerier) InsertProviderConnection(ctx context.Context, arg store.InsertProviderConnectionParams) error {
+	return nil
+}
 func (f *fakeQuerier) InsertSlot(ctx context.Context, arg store.InsertSlotParams) error { return nil }
-func (f *fakeQuerier) ListBindingsBySlot(ctx context.Context, slotID string) ([]store.Binding, error) { return nil, nil }
-func (f *fakeQuerier) ListBindingsBySlots(ctx context.Context, slotIDs []string) ([]store.Binding, error) { return nil, nil }
+func (f *fakeQuerier) ListBindingsBySlot(ctx context.Context, slotID string) ([]store.Binding, error) {
+	return nil, nil
+}
+func (f *fakeQuerier) ListBindingsBySlots(ctx context.Context, slotIDs []string) ([]store.Binding, error) {
+	return nil, nil
+}
 func (f *fakeQuerier) ListProjects(ctx context.Context) ([]store.Project, error) { return nil, nil }
-func (f *fakeQuerier) ListProviderAccounts(ctx context.Context) ([]store.ProviderAccount, error) { return nil, nil }
-func (f *fakeQuerier) ListSlotsByProject(ctx context.Context, projectID string) ([]store.Slot, error) { return nil, nil }
-func (f *fakeQuerier) UpdateProject(ctx context.Context, arg store.UpdateProjectParams) error { return nil }
-func (f *fakeQuerier) UpdateSlot(ctx context.Context, arg store.UpdateSlotParams) error { return nil }
-func (f *fakeQuerier) UpdateSlotConfig(ctx context.Context, arg store.UpdateSlotConfigParams) error { return nil }
+func (f *fakeQuerier) ListProviderConnections(ctx context.Context) ([]store.ProviderConnection, error) {
+	return nil, nil
+}
+func (f *fakeQuerier) ListSlotsByProject(ctx context.Context, projectID string) ([]store.Slot, error) {
+	return nil, nil
+}
+func (f *fakeQuerier) UpdateProject(ctx context.Context, arg store.UpdateProjectParams) error {
+	return nil
+}
+func (f *fakeQuerier) UpdateSlot(ctx context.Context, arg store.UpdateSlotParams) error  { return nil }
+func (f *fakeQuerier) UpdateSlotConfig(ctx context.Context, arg store.UpdateSlotConfigParams) error {
+	return nil
+}
 
 var _ store.Querier = (*fakeQuerier)(nil)
 
@@ -156,15 +187,19 @@ type countingProvider struct {
 
 func (p *countingProvider) Type() string { return "fake" }
 
-func (p *countingProvider) ValidateCredentials(ctx context.Context, account *domain.ProviderAccount) (domain.AccountMeta, error) {
-	return domain.AccountMeta{}, nil
+func (p *countingProvider) Descriptor() domain.ProviderDescriptor {
+	return domain.ProviderDescriptor{Type: domain.ProviderType("fake")}
 }
 
-func (p *countingProvider) ListExternalResources(ctx context.Context, account *domain.ProviderAccount, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
+func (p *countingProvider) ValidateCredentials(ctx context.Context, conn *domain.ProviderConnection, credential []byte) (json.RawMessage, error) {
+	return json.RawMessage(`{"account_id":"fake-account"}`), nil
+}
+
+func (p *countingProvider) ListExternalResources(ctx context.Context, conn *domain.ProviderConnection, credential []byte, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
 	return nil, nil
 }
 
-func (p *countingProvider) GetResource(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+func (p *countingProvider) GetResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 	p.callCount.Add(1)
 	if p.err != nil {
 		return nil, p.err
@@ -185,38 +220,47 @@ func setUp(t *testing.T) (*RefreshEngine, *countingProvider, *fakeQuerier, strin
 	}
 	reg.Register(cp)
 
-	q.addAccount(store.ProviderAccount{
-		ID: "acct-1", Provider: "fake", Label: "test", EncryptedToken: "encrypted",
+	q.addConnection(store.ProviderConnection{
+		ID: "acct-1", Provider: "fake", Label: "test", EncryptedCredential: "encrypted",
 	})
 	q.addBinding(store.Binding{
-		ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-1", Provider: "fake",
+		ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-1", Product: "fake",
 		ExternalID: "ext-1", CachedMetaJson: `{"old":"data"}`, SyncStatus: string(domain.SyncStatusOK),
 	})
 
-	return NewRefreshEngine(q, reg), cp, q, "bnd-1"
+	return NewRefreshEngine(q, reg, &stubCredStore{}), cp, q, "bnd-1"
 }
 
 type providerAdapter struct {
 	typeFn        func() string
-	validateFn    func(ctx context.Context, account *domain.ProviderAccount) (domain.AccountMeta, error)
-	listFn        func(ctx context.Context, account *domain.ProviderAccount, kind domain.ResourceKind) ([]domain.ExternalResource, error)
-	getResourceFn func(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error)
+	descriptorFn  func() domain.ProviderDescriptor
+	validateFn    func(ctx context.Context, conn *domain.ProviderConnection, credential []byte) (json.RawMessage, error)
+	listFn        func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, kind domain.ResourceKind) ([]domain.ExternalResource, error)
+	getResourceFn func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error)
 }
 
 func (a *providerAdapter) Type() string {
 	if a.typeFn != nil { return a.typeFn() }
 	return "mock"
 }
-func (a *providerAdapter) ValidateCredentials(ctx context.Context, account *domain.ProviderAccount) (domain.AccountMeta, error) {
-	if a.validateFn != nil { return a.validateFn(ctx, account) }
-	return domain.AccountMeta{}, nil
+
+func (a *providerAdapter) Descriptor() domain.ProviderDescriptor {
+	if a.descriptorFn != nil { return a.descriptorFn() }
+	return domain.ProviderDescriptor{Type: domain.ProviderType("mock")}
 }
-func (a *providerAdapter) ListExternalResources(ctx context.Context, account *domain.ProviderAccount, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
-	if a.listFn != nil { return a.listFn(ctx, account, kind) }
+
+func (a *providerAdapter) ValidateCredentials(ctx context.Context, conn *domain.ProviderConnection, credential []byte) (json.RawMessage, error) {
+	if a.validateFn != nil { return a.validateFn(ctx, conn, credential) }
+	return json.RawMessage(`{}`), nil
+}
+
+func (a *providerAdapter) ListExternalResources(ctx context.Context, conn *domain.ProviderConnection, credential []byte, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
+	if a.listFn != nil { return a.listFn(ctx, conn, credential, kind) }
 	return nil, nil
 }
-func (a *providerAdapter) GetResource(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
-	if a.getResourceFn != nil { return a.getResourceFn(ctx, account, externalID) }
+
+func (a *providerAdapter) GetResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
+	if a.getResourceFn != nil { return a.getResourceFn(ctx, conn, credential, externalID) }
 	return nil, errors.New("not implemented")
 }
 
@@ -272,11 +316,11 @@ func TestRefreshCacheMiss(t *testing.T) {
 
 func TestRefreshConcurrent(t *testing.T) {
 	q := newFakeQuerier()
-	q.addAccount(store.ProviderAccount{
-		ID: "acct-1", Provider: "fake", Label: "test", EncryptedToken: "encrypted",
+	q.addConnection(store.ProviderConnection{
+		ID: "acct-1", Provider: "fake", Label: "test", EncryptedCredential: "encrypted",
 	})
 	q.addBinding(store.Binding{
-		ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-1", Provider: "fake",
+		ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-1", Product: "fake",
 		ExternalID: "ext-1", CachedMetaJson: `{}`, SyncStatus: string(domain.SyncStatusNever),
 	})
 
@@ -284,7 +328,7 @@ func TestRefreshConcurrent(t *testing.T) {
 	callCount := atomic.Int64{}
 	reg.Register(&providerAdapter{
 		typeFn: func() string { return "fake" },
-		getResourceFn: func(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+		getResourceFn: func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 			callCount.Add(1)
 			time.Sleep(10 * time.Millisecond)
 			return &domain.ExternalResource{
@@ -294,7 +338,7 @@ func TestRefreshConcurrent(t *testing.T) {
 		},
 	})
 
-	eng := NewRefreshEngine(q, reg)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
@@ -329,21 +373,21 @@ func TestRefreshNegativeTTL(t *testing.T) {
 	callCount := atomic.Int64{}
 	reg.Register(&providerAdapter{
 		typeFn: func() string { return "fake" },
-		getResourceFn: func(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+		getResourceFn: func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 			callCount.Add(1)
 			return nil, fmt.Errorf("upstream error: %w", &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "internal error"})
 		},
 	})
 
-	q.addAccount(store.ProviderAccount{
-		ID: "acct-1", Provider: "fake", Label: "test", EncryptedToken: "encrypted",
+	q.addConnection(store.ProviderConnection{
+		ID: "acct-1", Provider: "fake", Label: "test", EncryptedCredential: "encrypted",
 	})
 	q.addBinding(store.Binding{
-		ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-1", Provider: "fake",
+		ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-1", Product: "fake",
 		ExternalID: "ext-1", CachedMetaJson: `{}`, SyncStatus: string(domain.SyncStatusNever),
 	})
 
-	eng := NewRefreshEngine(q, reg)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
 	ctx := context.Background()
 
 	b, err := eng.GetBindingStatus(ctx, "bnd-1")
@@ -390,7 +434,7 @@ func TestRefreshFanOut(t *testing.T) {
 	callCount := atomic.Int64{}
 	reg.Register(&providerAdapter{
 		typeFn: func() string { return "fake" },
-		getResourceFn: func(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+		getResourceFn: func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 			callCount.Add(1)
 			return &domain.ExternalResource{
 				ExternalID: externalID, DisplayName: "shared-resource",
@@ -402,15 +446,15 @@ func TestRefreshFanOut(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		q.addBinding(store.Binding{
 			ID: fmt.Sprintf("bnd-%d", i), SlotID: fmt.Sprintf("slot-%d", i),
-			AccountID: "acct-1", Provider: "fake", ExternalID: "shared-ext",
+			ConnectionID: "acct-1", Product: "fake", ExternalID: "shared-ext",
 			CachedMetaJson: `{}`, SyncStatus: string(domain.SyncStatusNever),
 		})
 	}
-	q.addAccount(store.ProviderAccount{
-		ID: "acct-1", Provider: "fake", Label: "test", EncryptedToken: "encrypted",
+	q.addConnection(store.ProviderConnection{
+		ID: "acct-1", Provider: "fake", Label: "test", EncryptedCredential: "encrypted",
 	})
 
-	eng := NewRefreshEngine(q, reg)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
 	ctx := context.Background()
 
 	err := eng.FanOutRefresh(ctx, "acct-1", "shared-ext")
@@ -434,20 +478,20 @@ func TestRefreshNotFound(t *testing.T) {
 
 	reg.Register(&providerAdapter{
 		typeFn: func() string { return "fake" },
-		getResourceFn: func(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+		getResourceFn: func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 			callCount.Add(1)
 			return nil, &provider.Error{Kind: provider.KindNotFound}
 		},
 	})
-	q.addAccount(store.ProviderAccount{
-		ID: "acct-1", Provider: "fake", Label: "test", EncryptedToken: "encrypted",
+	q.addConnection(store.ProviderConnection{
+		ID: "acct-1", Provider: "fake", Label: "test", EncryptedCredential: "encrypted",
 	})
 	q.addBinding(store.Binding{
-		ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-1", Provider: "fake",
+		ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-1", Product: "fake",
 		ExternalID: "ext-1", CachedMetaJson: `{}`, SyncStatus: string(domain.SyncStatusOK),
 	})
 
-	eng := NewRefreshEngine(q, reg)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
 	ctx := context.Background()
 
 	b, err := eng.GetBindingStatus(ctx, "bnd-1")
@@ -467,20 +511,20 @@ func TestRefreshUnauthorized(t *testing.T) {
 
 	reg.Register(&providerAdapter{
 		typeFn: func() string { return "fake" },
-		getResourceFn: func(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+		getResourceFn: func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 			callCount.Add(1)
 			return nil, &provider.Error{Kind: provider.KindUnauthorized}
 		},
 	})
-	q.addAccount(store.ProviderAccount{
-		ID: "acct-1", Provider: "fake", Label: "test", EncryptedToken: "encrypted",
+	q.addConnection(store.ProviderConnection{
+		ID: "acct-1", Provider: "fake", Label: "test", EncryptedCredential: "encrypted",
 	})
 	q.addBinding(store.Binding{
-		ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-1", Provider: "fake",
+		ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-1", Product: "fake",
 		ExternalID: "ext-1", CachedMetaJson: `{}`, SyncStatus: string(domain.SyncStatusOK),
 	})
 
-	eng := NewRefreshEngine(q, reg)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
 	ctx := context.Background()
 
 	b, err := eng.GetBindingStatus(ctx, "bnd-1")
@@ -515,7 +559,7 @@ func TestRefreshConcurrentRace(t *testing.T) {
 
 	reg.Register(&providerAdapter{
 		typeFn: func() string { return "fake" },
-		getResourceFn: func(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+		getResourceFn: func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 			time.Sleep(10 * time.Millisecond)
 			return &domain.ExternalResource{
 				ExternalID: "ext-1", DisplayName: "test",
@@ -523,15 +567,15 @@ func TestRefreshConcurrentRace(t *testing.T) {
 			}, nil
 		},
 	})
-	q.addAccount(store.ProviderAccount{
-		ID: "acct-1", Provider: "fake", Label: "test", EncryptedToken: "encrypted",
+	q.addConnection(store.ProviderConnection{
+		ID: "acct-1", Provider: "fake", Label: "test", EncryptedCredential: "encrypted",
 	})
 	q.addBinding(store.Binding{
-		ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-1", Provider: "fake",
+		ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-1", Product: "fake",
 		ExternalID: "ext-1", CachedMetaJson: `{}`, SyncStatus: string(domain.SyncStatusNever),
 	})
 
-	eng := NewRefreshEngine(q, reg)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
 	ctx := context.Background()
 
 	var wg sync.WaitGroup

@@ -21,7 +21,7 @@ func TestSlotConfigValidateRepo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateSlotConfig(string(domain.ResourceKindRepo), tt.config)
+			err := validateSlotConfig(domain.SlotRoleSource, tt.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateSlotConfig(repo, %s) error = %v, wantErr = %v", string(tt.config), err, tt.wantErr)
 			}
@@ -42,7 +42,7 @@ func TestSlotConfigValidateCompute(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateSlotConfig(string(domain.ResourceKindCompute), tt.config)
+			err := validateSlotConfig(domain.SlotRoleBackend, tt.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateSlotConfig(compute, %s) error = %v, wantErr = %v", string(tt.config), err, tt.wantErr)
 			}
@@ -63,7 +63,7 @@ func TestSlotConfigValidateStaticSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateSlotConfig(string(domain.ResourceKindStaticSite), tt.config)
+			err := validateSlotConfig(domain.SlotRoleFrontend, tt.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateSlotConfig(static-site, %s) error = %v, wantErr = %v", string(tt.config), err, tt.wantErr)
 			}
@@ -82,7 +82,7 @@ func TestSlotConfigValidateDNSDomain(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateSlotConfig(string(domain.ResourceKindDNSDomain), tt.config)
+			err := validateSlotConfig(domain.SlotRoleDNS, tt.config)
 			if err != nil {
 				t.Errorf("validateSlotConfig(dns-domain, %s) error = %v, want nil", string(tt.config), err)
 			}

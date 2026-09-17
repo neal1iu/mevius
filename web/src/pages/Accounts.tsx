@@ -68,14 +68,14 @@ function MetaSummary({ provider, meta }: { provider: string; meta?: Record<strin
     )
   }
   if (provider === 'cloudflare') {
-    const name = meta.account_name as string | undefined
+    const name = meta?.account_name as string | undefined
     return (
-      <span className="font-medium text-foreground">{name ?? meta.account_id as string}</span>
+      <span className="font-medium text-foreground">{name ?? meta?.account_id as string}</span>
     )
   }
   if (provider === 'vercel') {
-    const username = meta.username as string | undefined
-    const teamId = meta.team_id as string | undefined
+    const username = meta?.username as string | undefined
+    const teamId = meta?.team_id as string | undefined
     return (
       <div className="flex flex-col gap-0.5">
         {username && <span className="font-medium text-foreground">{username}</span>}

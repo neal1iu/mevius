@@ -11,45 +11,13 @@ import (
 	"mevius/internal/store"
 )
 
-func TestValidateCapabilityMatrix(t *testing.T) {
-	tests := []struct {
-		kind     domain.ResourceKind
-		provider domain.ProviderType
-		wantErr  bool
-	}{
-		{kind: domain.ResourceKindRepo, provider: domain.ProviderTypeGitHub, wantErr: false},
-		{kind: domain.ResourceKindRepo, provider: domain.ProviderTypeCloudflare, wantErr: true},
-		{kind: domain.ResourceKindRepo, provider: domain.ProviderTypeVercel, wantErr: true},
-		{kind: domain.ResourceKindCompute, provider: domain.ProviderTypeCloudflare, wantErr: false},
-		{kind: domain.ResourceKindCompute, provider: domain.ProviderTypeGitHub, wantErr: true},
-		{kind: domain.ResourceKindCompute, provider: domain.ProviderTypeVercel, wantErr: true},
-		{kind: domain.ResourceKindStaticSite, provider: domain.ProviderTypeCloudflare, wantErr: false},
-		{kind: domain.ResourceKindStaticSite, provider: domain.ProviderTypeVercel, wantErr: false},
-		{kind: domain.ResourceKindStaticSite, provider: domain.ProviderTypeGitHub, wantErr: true},
-		{kind: domain.ResourceKindDNSDomain, provider: domain.ProviderTypeCloudflare, wantErr: false},
-		{kind: domain.ResourceKindDNSDomain, provider: domain.ProviderTypeVercel, wantErr: false},
-		{kind: domain.ResourceKindDNSDomain, provider: domain.ProviderTypeGitHub, wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(string(tt.kind)+"_"+string(tt.provider), func(t *testing.T) {
-			err := ValidateCapability(tt.kind, tt.provider)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateCapability(%s, %s) error = %v, wantErr = %v", tt.kind, tt.provider, err, tt.wantErr)
-			}
-			if tt.wantErr && !errors.Is(err, ErrUnsupportedCombo) {
-				t.Errorf("expected ErrUnsupportedCombo, got %v", err)
-			}
-		})
-	}
-}
-
 func TestBindSlotNotFound(t *testing.T) {
 	q := newFakeQuerier()
 	reg := provider.NewRegistry()
-	eng := NewRefreshEngine(q, reg)
-	svc := NewBindingService(q, reg, eng)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
+	svc := NewBindingService(q, reg, &stubCredStore{}, eng)
 
-	_, err := svc.Bind(context.Background(), "nonexistent-slot", "acct-1", "ext-1")
+	_, err := svc.Bind(context.Background(), "nonexistent-slot", "acct-1", "product", "ext-1")
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("expected sql.ErrNoRows for nonexistent slot, got %v", err)
 	}
@@ -58,49 +26,40 @@ func TestBindSlotNotFound(t *testing.T) {
 func TestBindAccountNotFound(t *testing.T) {
 	q := newFakeQuerier()
 	reg := provider.NewRegistry()
-	eng := NewRefreshEngine(q, reg)
-	svc := NewBindingService(q, reg, eng)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
+	svc := NewBindingService(q, reg, &stubCredStore{}, eng)
 
 	q.addBinding(store.Binding{ID: "dummy"})
-	q.addSlot(store.Slot{ID: "slot-1", Type: "repo"})
+	q.addSlot(store.Slot{ID: "slot-1", Role: "repo"})
 
-	_, err := svc.Bind(context.Background(), "slot-1", "nonexistent-account", "ext-1")
+	_, err := svc.Bind(context.Background(), "slot-1", "nonexistent-connection", "product", "ext-1")
 	if !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("expected sql.ErrNoRows for nonexistent account, got %v", err)
-	}
-}
-
-func TestBindUnsupportedCombo(t *testing.T) {
-	q := newFakeQuerier()
-	reg := provider.NewRegistry()
-	eng := NewRefreshEngine(q, reg)
-	svc := NewBindingService(q, reg, eng)
-
-	q.addSlot(store.Slot{ID: "slot-1", Type: "repo"})
-	q.addAccount(store.ProviderAccount{ID: "acct-1", Provider: "cloudflare"})
-
-	_, err := svc.Bind(context.Background(), "slot-1", "acct-1", "ext-1")
-	if !errors.Is(err, ErrUnsupportedCombo) {
-		t.Fatalf("expected ErrUnsupportedCombo for repo+cloudflare, got %v", err)
+		t.Fatalf("expected sql.ErrNoRows for nonexistent connection, got %v", err)
 	}
 }
 
 func TestBindDuplicate(t *testing.T) {
 	q := newFakeQuerier()
 	reg := provider.NewRegistry()
-	eng := NewRefreshEngine(q, reg)
-	svc := NewBindingService(q, reg, eng)
+	reg.Register(&providerAdapter{
+		typeFn: func() string { return "cloudflare" },
+		descriptorFn: func() domain.ProviderDescriptor {
+			return provider.CloudflareDescriptor
+		},
+	})
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
+	svc := NewBindingService(q, reg, &stubCredStore{}, eng)
 
-	q.addSlot(store.Slot{ID: "slot-1", Type: "static-site"})
-	q.addAccount(store.ProviderAccount{ID: "acct-1", Provider: "cloudflare"})
+	q.addSlot(store.Slot{ID: "slot-1", Role: "frontend"})
+	q.addConnection(store.ProviderConnection{ID: "acct-1", Provider: "cloudflare"})
 
-	_, err := svc.Bind(context.Background(), "slot-1", "acct-1", "ext-1")
+	_, err := svc.Bind(context.Background(), "slot-1", "acct-1", "cloudflare.pages", "ext-1")
 	if err != nil {
 		t.Fatalf("first bind: %v", err)
 	}
 
 	q.setInsertBindingErr(errors.New("UNIQUE constraint failed"))
-	_, err = svc.Bind(context.Background(), "slot-1", "acct-1", "ext-1")
+	_, err = svc.Bind(context.Background(), "slot-1", "acct-1", "cloudflare.pages", "ext-1")
 	if !errors.Is(err, ErrDuplicateBinding) {
 		t.Fatalf("expected ErrDuplicateBinding, got %v", err)
 	}
@@ -109,8 +68,8 @@ func TestBindDuplicate(t *testing.T) {
 func TestUnbind(t *testing.T) {
 	q := newFakeQuerier()
 	reg := provider.NewRegistry()
-	eng := NewRefreshEngine(q, reg)
-	svc := NewBindingService(q, reg, eng)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
+	svc := NewBindingService(q, reg, &stubCredStore{}, eng)
 
 	err := svc.Unbind(context.Background(), "bnd-1")
 	if err != nil {
@@ -124,11 +83,11 @@ func TestRefreshBinding(t *testing.T) {
 	cp := &countingProvider{result: &domain.ExternalResource{ExternalID: "ext-1", Meta: map[string]any{"key": "val"}}}
 	reg.Register(cp)
 
-	q.addAccount(store.ProviderAccount{ID: "acct-1", Provider: "fake", EncryptedToken: "enc"})
-	q.addBinding(store.Binding{ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-1", Provider: "fake", ExternalID: "ext-1"})
+	q.addConnection(store.ProviderConnection{ID: "acct-1", Provider: "fake", EncryptedCredential: "enc"})
+	q.addBinding(store.Binding{ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-1", Product: "fake", ExternalID: "ext-1"})
 
-	eng := NewRefreshEngine(q, reg)
-	svc := NewBindingService(q, reg, eng)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
+	svc := NewBindingService(q, reg, &stubCredStore{}, eng)
 
 	b, err := svc.Refresh(context.Background(), "bnd-1")
 	if err != nil {
@@ -142,8 +101,8 @@ func TestRefreshBinding(t *testing.T) {
 func TestListBindingsBySlotEmpty(t *testing.T) {
 	q := newFakeQuerier()
 	reg := provider.NewRegistry()
-	eng := NewRefreshEngine(q, reg)
-	svc := NewBindingService(q, reg, eng)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
+	svc := NewBindingService(q, reg, &stubCredStore{}, eng)
 
 	bindings, err := svc.ListBySlot(context.Background(), "nonexistent")
 	if err != nil {

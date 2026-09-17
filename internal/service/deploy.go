@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -40,6 +39,10 @@ func NewDeployService(q store.Querier, reg *provider.Registry, credStore domain.
 	}
 }
 
+func (s *DeployService) resolveCredential(ctx context.Context, connectionID string) ([]byte, error) {
+	return s.credStore.Resolve(ctx, connectionID)
+}
+
 func (s *DeployService) TriggerDeploy(ctx context.Context, bindingID string) (*domain.DeployEvent, error) {
 	b, err := s.store.GetBinding(ctx, bindingID)
 	if err != nil {
@@ -57,19 +60,19 @@ func (s *DeployService) TriggerDeploy(ctx context.Context, bindingID string) (*d
 		return nil, fmt.Errorf("get slot: %w", err)
 	}
 
-	connRow, err := s.store.GetProviderConnection(ctx, b.ConnectionID)
+	conn, err := s.store.GetProviderConnection(ctx, b.ConnectionID)
 	if err != nil {
 		return nil, fmt.Errorf("get connection: %w", err)
 	}
 
-	cred, err := s.credStore.Resolve(ctx, b.ConnectionID)
+	cred, err := s.resolveCredential(ctx, b.ConnectionID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve credential: %w", err)
 	}
 
-	p := s.registry.Get(connRow.Provider)
+	p := s.registry.Get(conn.Provider)
 	if p == nil {
-		return nil, fmt.Errorf("provider %s not found", connRow.Provider)
+		return nil, fmt.Errorf("provider %s not found", conn.Provider)
 	}
 
 	deployer, ok := p.(provider.Deployer)
@@ -77,9 +80,14 @@ func (s *DeployService) TriggerDeploy(ctx context.Context, bindingID string) (*d
 		return nil, &provider.Error{Kind: provider.KindUnsupported, ProviderMsg: "provider does not support deployments"}
 	}
 
-	conn := storeConnectionToDomain(connRow)
-	db := storeBindingToDomain(b)
-	event, err := deployer.TriggerDeploy(ctx, &conn, cred, &db, storeSlotToPtr(slot))
+	provConn := &domain.ProviderConnection{
+		ID:       conn.ID,
+		Provider: domain.ProviderType(conn.Provider),
+		Label:    conn.Label,
+		Endpoint: conn.Endpoint,
+	}
+
+	event, err := deployer.TriggerDeploy(ctx, provConn, cred, bindingToDomain(b), storeSlotToPtr(slot))
 	if err != nil {
 		return nil, scrubProviderErr(err)
 	}
@@ -118,19 +126,19 @@ func (s *DeployService) ListDeployments(ctx context.Context, bindingID string) (
 		return nil, fmt.Errorf("get binding: %w", err)
 	}
 
-	connRow, err := s.store.GetProviderConnection(ctx, b.ConnectionID)
+	conn, err := s.store.GetProviderConnection(ctx, b.ConnectionID)
 	if err != nil {
 		return nil, fmt.Errorf("get connection: %w", err)
 	}
 
-	cred, err := s.credStore.Resolve(ctx, b.ConnectionID)
+	cred, err := s.resolveCredential(ctx, b.ConnectionID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve credential: %w", err)
 	}
 
-	p := s.registry.Get(connRow.Provider)
+	p := s.registry.Get(conn.Provider)
 	if p == nil {
-		return nil, fmt.Errorf("provider %s not found", connRow.Provider)
+		return nil, fmt.Errorf("provider %s not found", conn.Provider)
 	}
 
 	deployer, ok := p.(provider.Deployer)
@@ -138,9 +146,14 @@ func (s *DeployService) ListDeployments(ctx context.Context, bindingID string) (
 		return nil, &provider.Error{Kind: provider.KindUnsupported, ProviderMsg: "provider does not support deployments"}
 	}
 
-	conn := storeConnectionToDomain(connRow)
-	db := storeBindingToDomain(b)
-	events, err := deployer.ListDeployments(ctx, &conn, cred, &db)
+	provConn := &domain.ProviderConnection{
+		ID:       conn.ID,
+		Provider: domain.ProviderType(conn.Provider),
+		Label:    conn.Label,
+		Endpoint: conn.Endpoint,
+	}
+
+	events, err := deployer.ListDeployments(ctx, provConn, cred, bindingToDomain(b))
 	if err != nil {
 		return nil, scrubProviderErr(err)
 	}
@@ -162,19 +175,19 @@ func (s *DeployService) GetLogs(ctx context.Context, bindingID, deployID string,
 		return domain.LogChunk{}, fmt.Errorf("get binding: %w", err)
 	}
 
-	connRow, err := s.store.GetProviderConnection(ctx, b.ConnectionID)
+	conn, err := s.store.GetProviderConnection(ctx, b.ConnectionID)
 	if err != nil {
 		return domain.LogChunk{}, fmt.Errorf("get connection: %w", err)
 	}
 
-	cred, err := s.credStore.Resolve(ctx, b.ConnectionID)
+	cred, err := s.resolveCredential(ctx, b.ConnectionID)
 	if err != nil {
 		return domain.LogChunk{}, fmt.Errorf("resolve credential: %w", err)
 	}
 
-	p := s.registry.Get(connRow.Provider)
+	p := s.registry.Get(conn.Provider)
 	if p == nil {
-		return domain.LogChunk{}, fmt.Errorf("provider %s not found", connRow.Provider)
+		return domain.LogChunk{}, fmt.Errorf("provider %s not found", conn.Provider)
 	}
 
 	fetcher, ok := p.(provider.LogFetcher)
@@ -182,28 +195,19 @@ func (s *DeployService) GetLogs(ctx context.Context, bindingID, deployID string,
 		return domain.LogChunk{}, &provider.Error{Kind: provider.KindUnsupported, ProviderMsg: "provider does not support log fetching"}
 	}
 
-	conn := storeConnectionToDomain(connRow)
-	db := storeBindingToDomain(b)
-	chunk, err := fetcher.GetBuildLogs(ctx, &conn, cred, &db, deployID, tail)
+	provConn := &domain.ProviderConnection{
+		ID:       conn.ID,
+		Provider: domain.ProviderType(conn.Provider),
+		Label:    conn.Label,
+		Endpoint: conn.Endpoint,
+	}
+
+	chunk, err := fetcher.GetBuildLogs(ctx, provConn, cred, bindingToDomain(b), deployID, tail)
 	if err != nil {
 		return domain.LogChunk{}, scrubProviderErr(err)
 	}
 
 	return chunk, nil
-}
-
-func storeSlotToPtr(s store.Slot) *domain.Slot {
-	ds := &domain.Slot{
-		ID:        s.ID,
-		ProjectID: s.ProjectID,
-		Name:      s.Name,
-		Role:      domain.SlotRole(s.Role),
-		CreatedAt: s.CreatedAt,
-	}
-	if s.ConfigJson != "" && s.ConfigJson != "{}" {
-		ds.Config = json.RawMessage(s.ConfigJson)
-	}
-	return ds
 }
 
 func scrubProviderErr(err error) error {

@@ -14,28 +14,28 @@ import (
 
 type fakeDeployProvider struct {
 	*providerAdapter
-	deployTriggerFn func(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error)
-	deployListFn    func(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding) ([]domain.DeployEvent, error)
-	logFetchFn      func(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error)
+	deployTriggerFn func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error)
+	deployListFn    func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding) ([]domain.DeployEvent, error)
+	logFetchFn      func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error)
 }
 
-func (a *fakeDeployProvider) TriggerDeploy(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
+func (a *fakeDeployProvider) TriggerDeploy(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
 	if a.deployTriggerFn != nil {
-		return a.deployTriggerFn(ctx, account, binding, slot)
+		return a.deployTriggerFn(ctx, conn, credential, binding, slot)
 	}
 	return &domain.DeployEvent{ID: "evt-1", Status: "queued"}, nil
 }
 
-func (a *fakeDeployProvider) ListDeployments(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding) ([]domain.DeployEvent, error) {
+func (a *fakeDeployProvider) ListDeployments(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding) ([]domain.DeployEvent, error) {
 	if a.deployListFn != nil {
-		return a.deployListFn(ctx, account, binding)
+		return a.deployListFn(ctx, conn, credential, binding)
 	}
 	return nil, nil
 }
 
-func (a *fakeDeployProvider) GetBuildLogs(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error) {
+func (a *fakeDeployProvider) GetBuildLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error) {
 	if a.logFetchFn != nil {
-		return a.logFetchFn(ctx, account, binding, deployID, tail)
+		return a.logFetchFn(ctx, conn, credential, binding, deployID, tail)
 	}
 	return domain.LogChunk{}, nil
 }
@@ -48,25 +48,25 @@ func deploySetUp(t *testing.T) (*DeployService, *fakeDeployProvider, *fakeQuerie
 		providerAdapter: &providerAdapter{typeFn: func() string { return "cloudflare" }},
 	}
 	reg.Register(dp)
-	q.addAccount(store.ProviderAccount{
-		ID: "acct-1", Provider: "cloudflare", Label: "cf", EncryptedToken: "encrypted",
+	q.addConnection(store.ProviderConnection{
+		ID: "acct-1", Provider: "cloudflare", Label: "cf", EncryptedCredential: "encrypted",
 	})
 	q.addBinding(store.Binding{
-		ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-1", Provider: "cloudflare",
+		ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-1", Product: "cloudflare",
 		ExternalID: "ext-1", CachedMetaJson: `{}`, SyncStatus: "ok",
 	})
 	q.addSlot(store.Slot{
-		ID: "slot-1", ProjectID: "proj-1", Type: "static-site", Name: "site",
+		ID: "slot-1", ProjectID: "proj-1", Role: "static-site", Name: "site",
 		ConfigJson: `{"name":"site"}`, CreatedAt: "now",
 	})
-	eng := NewRefreshEngine(q, reg)
-	svc := NewDeployService(q, reg, eng)
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
+	svc := NewDeployService(q, reg, &stubCredStore{}, eng)
 	return svc, dp, q, "bnd-1"
 }
 
 func TestTriggerDeploySuccess(t *testing.T) {
 	svc, dp, _, bindingID := deploySetUp(t)
-	dp.deployTriggerFn = func(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
+	dp.deployTriggerFn = func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
 		return &domain.DeployEvent{ID: "evt-1", Status: "queued", CreatedAt: "now", UpdatedAt: "now"}, nil
 	}
 
@@ -108,13 +108,13 @@ func TestTriggerDeployAccountNotFound(t *testing.T) {
 	svc, _, q, bindingID := deploySetUp(t)
 	q.mu.Lock()
 	b := q.bindings[bindingID]
-	b.AccountID = "nonexistent-account"
+	b.ConnectionID = "nonexistent-connection"
 	q.bindings[bindingID] = b
 	q.mu.Unlock()
 
 	_, err := svc.TriggerDeploy(context.Background(), bindingID)
 	if err == nil {
-		t.Fatal("expected error for nonexistent account")
+		t.Fatal("expected error for nonexistent connection")
 	}
 }
 
@@ -122,8 +122,11 @@ func TestTriggerDeployProviderNotFound(t *testing.T) {
 	svc, _, q, bindingID := deploySetUp(t)
 	q.mu.Lock()
 	b := q.bindings[bindingID]
-	b.Provider = "nonexistent"
+	b.Product = "nonexistent"
 	q.bindings[bindingID] = b
+	conn := q.connections["acct-1"]
+	conn.Provider = "nonexistent"
+	q.connections["acct-1"] = conn
 	q.mu.Unlock()
 
 	_, err := svc.TriggerDeploy(context.Background(), bindingID)
@@ -137,15 +140,15 @@ func TestTriggerDeployUnsupported(t *testing.T) {
 	reg := provider.NewRegistry()
 	reg.Register(&providerAdapter{
 		typeFn: func() string { return "nondep" },
-		getResourceFn: func(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+		getResourceFn: func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 			return &domain.ExternalResource{ExternalID: externalID, Meta: map[string]any{}}, nil
 		},
 	})
-	q.addAccount(store.ProviderAccount{ID: "acct-1", Provider: "nondep", EncryptedToken: "enc"})
-	q.addBinding(store.Binding{ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-1", Provider: "nondep", ExternalID: "ext-1"})
-	q.addSlot(store.Slot{ID: "slot-1", ProjectID: "proj-1", Type: "static-site", Name: "site", ConfigJson: `{}`})
-	eng := NewRefreshEngine(q, reg)
-	svc := NewDeployService(q, reg, eng)
+	q.addConnection(store.ProviderConnection{ID: "acct-1", Provider: "nondep", EncryptedCredential: "enc"})
+	q.addBinding(store.Binding{ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-1", Product: "nondep", ExternalID: "ext-1"})
+	q.addSlot(store.Slot{ID: "slot-1", ProjectID: "proj-1", Role: "static-site", Name: "site", ConfigJson: `{}`})
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
+	svc := NewDeployService(q, reg, &stubCredStore{}, eng)
 
 	_, err := svc.TriggerDeploy(context.Background(), "bnd-1")
 	if err == nil {
@@ -163,7 +166,7 @@ func TestTriggerDeployUnsupported(t *testing.T) {
 func TestTriggerDeployProviderErrScrubbed(t *testing.T) {
 	svc, dp, _, bindingID := deploySetUp(t)
 	leakedToken := "ghp_[A-Za-z0-9]{36}"
-	dp.deployTriggerFn = func(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
+	dp.deployTriggerFn = func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
 		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "upstream error: " + leakedToken}
 	}
 
@@ -178,7 +181,7 @@ func TestTriggerDeployProviderErrScrubbed(t *testing.T) {
 
 func TestListDeploymentsSuccess(t *testing.T) {
 	svc, dp, _, bindingID := deploySetUp(t)
-	dp.deployListFn = func(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding) ([]domain.DeployEvent, error) {
+	dp.deployListFn = func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding) ([]domain.DeployEvent, error) {
 		return []domain.DeployEvent{{ID: "evt-1", Status: "ready", CreatedAt: "now"}}, nil
 	}
 
@@ -204,15 +207,15 @@ func TestListDeploymentsUnsupported(t *testing.T) {
 	reg := provider.NewRegistry()
 	reg.Register(&providerAdapter{
 		typeFn: func() string { return "nondep2" },
-		getResourceFn: func(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+		getResourceFn: func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 			return &domain.ExternalResource{ExternalID: externalID, Meta: map[string]any{}}, nil
 		},
 	})
-	q.addAccount(store.ProviderAccount{ID: "acct-1", Provider: "nondep2", EncryptedToken: "enc"})
-	q.addBinding(store.Binding{ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-1", Provider: "nondep2", ExternalID: "ext-1"})
-	q.addSlot(store.Slot{ID: "slot-1", ProjectID: "proj-1", Type: "static-site", Name: "site", ConfigJson: `{}`})
-	eng := NewRefreshEngine(q, reg)
-	svc := NewDeployService(q, reg, eng)
+	q.addConnection(store.ProviderConnection{ID: "acct-1", Provider: "nondep2", EncryptedCredential: "enc"})
+	q.addBinding(store.Binding{ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-1", Product: "nondep2", ExternalID: "ext-1"})
+	q.addSlot(store.Slot{ID: "slot-1", ProjectID: "proj-1", Role: "static-site", Name: "site", ConfigJson: `{}`})
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
+	svc := NewDeployService(q, reg, &stubCredStore{}, eng)
 
 	_, err := svc.ListDeployments(context.Background(), "bnd-1")
 	if err == nil {
@@ -229,7 +232,7 @@ func TestListDeploymentsUnsupported(t *testing.T) {
 
 func TestGetLogsSuccess(t *testing.T) {
 	svc, dp, _, bindingID := deploySetUp(t)
-	dp.logFetchFn = func(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error) {
+	dp.logFetchFn = func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error) {
 		return domain.LogChunk{Lines: "build log output", Truncated: false}, nil
 	}
 
@@ -247,15 +250,15 @@ func TestGetLogsUnsupported(t *testing.T) {
 	reg := provider.NewRegistry()
 	reg.Register(&providerAdapter{
 		typeFn: func() string { return "nondep3" },
-		getResourceFn: func(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
+		getResourceFn: func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
 			return &domain.ExternalResource{ExternalID: externalID, Meta: map[string]any{}}, nil
 		},
 	})
-	q.addAccount(store.ProviderAccount{ID: "acct-1", Provider: "nondep3", EncryptedToken: "enc"})
-	q.addBinding(store.Binding{ID: "bnd-1", SlotID: "slot-1", AccountID: "acct-1", Provider: "nondep3", ExternalID: "ext-1"})
-	q.addSlot(store.Slot{ID: "slot-1", ProjectID: "proj-1", Type: "static-site", Name: "site", ConfigJson: `{}`})
-	eng := NewRefreshEngine(q, reg)
-	svc := NewDeployService(q, reg, eng)
+	q.addConnection(store.ProviderConnection{ID: "acct-1", Provider: "nondep3", EncryptedCredential: "enc"})
+	q.addBinding(store.Binding{ID: "bnd-1", SlotID: "slot-1", ConnectionID: "acct-1", Product: "nondep3", ExternalID: "ext-1"})
+	q.addSlot(store.Slot{ID: "slot-1", ProjectID: "proj-1", Role: "static-site", Name: "site", ConfigJson: `{}`})
+	eng := NewRefreshEngine(q, reg, &stubCredStore{})
+	svc := NewDeployService(q, reg, &stubCredStore{}, eng)
 
 	_, err := svc.GetLogs(context.Background(), "bnd-1", "deploy-1", 100)
 	if err == nil {
@@ -281,7 +284,7 @@ func TestGetLogsBindingNotFound(t *testing.T) {
 func TestListDeploymentsFromCache(t *testing.T) {
 	svc, dp, _, bindingID := deploySetUp(t)
 	callCount := 0
-	dp.deployListFn = func(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding) ([]domain.DeployEvent, error) {
+	dp.deployListFn = func(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding) ([]domain.DeployEvent, error) {
 		callCount++
 		return []domain.DeployEvent{{ID: "evt-1", Status: "ready"}}, nil
 	}

@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -15,10 +14,10 @@ import (
 )
 
 type ProjectService struct {
-	q store.Querier
+	q *store.Queries
 }
 
-func NewProjectService(q store.Querier) *ProjectService {
+func NewProjectService(q *store.Queries) *ProjectService {
 	return &ProjectService{q: q}
 }
 
@@ -111,7 +110,7 @@ func (s *ProjectService) GetDetail(ctx context.Context, id string) (ProjectDetai
 		}
 		bindings = make([]domain.Binding, len(storeBindings))
 		for i, b := range storeBindings {
-			bindings[i] = storeBindingToDomain(b)
+			bindings[i] = *bindingToDomain(b)
 		}
 	}
 
@@ -176,37 +175,4 @@ func storeProjectToDomain(p store.Project) domain.Project {
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,
 	}
-}
-
-func storeSlotToDomain(s store.Slot) domain.Slot {
-	return domain.Slot{
-		ID:        s.ID,
-		ProjectID: s.ProjectID,
-		Name:      s.Name,
-		Role:      domain.SlotRole(s.Role),
-		Config:    []byte(s.ConfigJson),
-		CreatedAt: s.CreatedAt,
-	}
-}
-
-func storeBindingToDomain(b store.Binding) domain.Binding {
-	meta := make(map[string]any)
-	if b.CachedMetaJson != "" {
-		_ = json.Unmarshal([]byte(b.CachedMetaJson), &meta)
-	}
-	db := domain.Binding{
-		ID:           b.ID,
-		SlotID:       b.SlotID,
-		ConnectionID: b.ConnectionID,
-		ExternalID:   b.ExternalID,
-		Product:      domain.ProductType(b.Product),
-		CachedMeta:   meta,
-		SyncStatus:   domain.SyncStatus(b.SyncStatus),
-		LastSyncedAt: "",
-		CreatedAt:    b.CreatedAt,
-	}
-	if b.LastSyncedAt != nil {
-		db.LastSyncedAt = *b.LastSyncedAt
-	}
-	return db
 }

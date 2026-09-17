@@ -60,7 +60,7 @@ func seedRun(args []string) int {
 
 func hasUserData(ctx context.Context, db *sql.DB) (bool, error) {
 	var count int
-	row := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM provider_account")
+	row := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM provider_connection")
 	if err := row.Scan(&count); err != nil {
 		return false, err
 	}
@@ -90,7 +90,7 @@ func clearAll(ctx context.Context, db *sql.DB) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM project"); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM provider_account"); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM provider_connection"); err != nil {
 		return err
 	}
 
@@ -106,18 +106,18 @@ func insertFixtures(ctx context.Context, db *sql.DB) error {
 	defer tx.Rollback()
 
 	accounts := []struct {
-		id, provider, label, encryptedToken, metaJSON string
+		id, provider, label, endpoint, configJSON, encryptedCredential, remoteIdentityJSON string
 	}{
-		{"fixture-gh", "github", "Fixture GitHub", "env:v1:fixture:gh:token", `{}`},
-		{"fixture-cf", "cloudflare", "Fixture Cloudflare", "env:v1:fixture:cf:token", `{}`},
-		{"fixture-vc", "vercel", "Fixture Vercel", "env:v1:fixture:vc:token", `{}`},
+		{"fixture-gh", "github", "Fixture GitHub", "", `{}`, "env:v1:fixture:gh:token", `{}`},
+		{"fixture-cf", "cloudflare", "Fixture Cloudflare", "", `{}`, "env:v1:fixture:cf:token", `{}`},
+		{"fixture-vc", "vercel", "Fixture Vercel", "", `{}`, "env:v1:fixture:vc:token", `{}`},
 	}
 	for _, a := range accounts {
 		_, err := tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO provider_account (id, provider, label, encrypted_token, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-			a.id, a.provider, a.label, a.encryptedToken, a.metaJSON, now)
+			`INSERT OR REPLACE INTO provider_connection (id, provider, label, endpoint, config_json, encrypted_credential, remote_identity_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			a.id, a.provider, a.label, a.endpoint, a.configJSON, a.encryptedCredential, a.remoteIdentityJSON, now)
 		if err != nil {
-			return fmt.Errorf("insert account %s: %w", a.id, err)
+			return fmt.Errorf("insert connection %s: %w", a.id, err)
 		}
 	}
 
@@ -137,17 +137,17 @@ func insertFixtures(ctx context.Context, db *sql.DB) error {
 	}
 
 	slots := []struct {
-		id, projectID, slotType, name, configJSON string
+		id, projectID, role, name, configJSON string
 	}{
-		{"fixture-slot-repo", "fixture-proj-shop", "repo", "shop-repo", `{"repo":"mevius/demo-shop"}`},
-		{"fixture-slot-compute", "fixture-proj-shop", "compute", "shop-worker", `{"runtime":"node18"}`},
-		{"fixture-slot-ss", "fixture-proj-blog", "static-site", "blog-site", `{"build_command":"npm run build"}`},
-		{"fixture-slot-dns", "fixture-proj-blog", "dns-domain", "blog-domain", `{"domain":"blog.example.com"}`},
+		{"fixture-slot-repo", "fixture-proj-shop", "source", "shop-repo", `{"repo":"mevius/demo-shop"}`},
+		{"fixture-slot-compute", "fixture-proj-shop", "backend", "shop-worker", `{"runtime":"node18"}`},
+		{"fixture-slot-ss", "fixture-proj-blog", "frontend", "blog-site", `{"build_command":"npm run build"}`},
+		{"fixture-slot-dns", "fixture-proj-blog", "dns", "blog-domain", `{"domain":"blog.example.com"}`},
 	}
 	for _, s := range slots {
 		_, err := tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO slot (id, project_id, type, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-			s.id, s.projectID, s.slotType, s.name, s.configJSON, now)
+			`INSERT OR REPLACE INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			s.id, s.projectID, s.role, s.name, s.configJSON, now)
 		if err != nil {
 			return fmt.Errorf("insert slot %s: %w", s.id, err)
 		}
@@ -155,18 +155,18 @@ func insertFixtures(ctx context.Context, db *sql.DB) error {
 
 	// Bindings with all 4 sync_status values
 	bindings := []struct {
-		id, slotID, accountID, provider, externalID, cachedMetaJSON, syncStatus string
-		lastSyncedAt                                                             *string
+		id, slotID, connectionID, product, externalID, cachedMetaJSON, syncStatus string
+		lastSyncedAt                                                                *string
 	}{
-		{"fixture-b-ok", "fixture-slot-repo", "fixture-gh", "github", "repo-ok-1", `{"name":"demo-shop","private":false}`, "ok", strPtr(now)},
-		{"fixture-b-err", "fixture-slot-repo", "fixture-gh", "github", "repo-err-1", `{}`, "error", nil},
-		{"fixture-b-auth", "fixture-slot-ss", "fixture-vc", "vercel", "proj-auth-1", `{}`, "auth_error", nil},
-		{"fixture-b-orph", "fixture-slot-dns", "fixture-cf", "cloudflare", "zone-orph-1", `{"zone":"orphaned.example.com"}`, "orphaned", strPtr(now)},
+		{"fixture-b-ok", "fixture-slot-repo", "fixture-gh", "github.repositories", "repo-ok-1", `{"name":"demo-shop","private":false}`, "ok", strPtr(now)},
+		{"fixture-b-err", "fixture-slot-repo", "fixture-gh", "github.repositories", "repo-err-1", `{}`, "error", nil},
+		{"fixture-b-auth", "fixture-slot-ss", "fixture-vc", "vercel.projects", "proj-auth-1", `{}`, "auth_error", nil},
+		{"fixture-b-orph", "fixture-slot-dns", "fixture-cf", "cloudflare.dns", "zone-orph-1", `{"zone":"orphaned.example.com"}`, "orphaned", strPtr(now)},
 	}
 	for _, b := range bindings {
 		_, err := tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			b.id, b.slotID, b.accountID, b.provider, b.externalID, b.cachedMetaJSON, b.syncStatus, b.lastSyncedAt, now)
+			`INSERT OR REPLACE INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			b.id, b.slotID, b.connectionID, b.product, b.externalID, b.cachedMetaJSON, b.syncStatus, b.lastSyncedAt, now)
 		if err != nil {
 			return fmt.Errorf("insert binding %s: %w", b.id, err)
 		}
