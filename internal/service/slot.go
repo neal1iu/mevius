@@ -15,20 +15,19 @@ import (
 )
 
 type SlotService struct {
-	q *store.Queries
+	q store.Querier
 }
 
-func NewSlotService(q *store.Queries) *SlotService {
+func NewSlotService(q store.Querier) *SlotService {
 	return &SlotService{q: q}
 }
 
 var (
 	ErrSlotConfigInvalid = errors.New("slot config validation failed")
-	errSlotTypeChange    = errors.New("slot type cannot be changed")
 )
 
-func (s *SlotService) Create(ctx context.Context, projectID, kind, name string, config json.RawMessage) (domain.Slot, error) {
-	if err := validateSlotConfig(kind, config); err != nil {
+func (s *SlotService) Create(ctx context.Context, projectID string, role domain.SlotRole, name string, config json.RawMessage) (domain.Slot, error) {
+	if err := validateSlotConfig(role, config); err != nil {
 		return domain.Slot{}, fmt.Errorf("%w: %w", ErrSlotConfigInvalid, err)
 	}
 
@@ -42,7 +41,7 @@ func (s *SlotService) Create(ctx context.Context, projectID, kind, name string, 
 	err := s.q.InsertSlot(ctx, store.InsertSlotParams{
 		ID:         id,
 		ProjectID:  projectID,
-		Type:       kind,
+		Role:       string(role),
 		Name:       name,
 		ConfigJson: configStr,
 		CreatedAt:  now,
@@ -55,7 +54,7 @@ func (s *SlotService) Create(ctx context.Context, projectID, kind, name string, 
 		ID:        id,
 		ProjectID: projectID,
 		Name:      name,
-		Kind:      domain.ResourceKind(kind),
+		Role:      role,
 		Config:    config,
 		CreatedAt: now,
 	}, nil
@@ -94,7 +93,7 @@ func (s *SlotService) Update(ctx context.Context, id, name string, config json.R
 	}
 
 	if config != nil {
-		if err := validateSlotConfig(existing.Type, config); err != nil {
+		if err := validateSlotConfig(domain.SlotRole(existing.Role), config); err != nil {
 			return domain.Slot{}, fmt.Errorf("%w: %w", ErrSlotConfigInvalid, err)
 		}
 	}
@@ -117,7 +116,14 @@ func (s *SlotService) Update(ctx context.Context, id, name string, config json.R
 		return domain.Slot{}, fmt.Errorf("update slot: %w", err)
 	}
 
-	return storeSlotToDomain(existing), nil
+	return domain.Slot{
+		ID:        id,
+		ProjectID: existing.ProjectID,
+		Name:      updateName,
+		Role:      domain.SlotRole(existing.Role),
+		Config:    json.RawMessage(configStr),
+		CreatedAt: existing.CreatedAt,
+	}, nil
 }
 
 func (s *SlotService) Delete(ctx context.Context, id string) error {
@@ -136,29 +142,29 @@ func (s *SlotService) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func validateSlotConfig(kind string, config json.RawMessage) error {
-	switch domain.ResourceKind(kind) {
-	case domain.ResourceKindRepo:
+func validateSlotConfig(role domain.SlotRole, config json.RawMessage) error {
+	switch role {
+	case domain.SlotRoleSource:
 		var cfg domain.RepoConfig
 		if err := json.Unmarshal(config, &cfg); err != nil {
 			return fmt.Errorf("invalid repo config: %w", err)
 		}
 		return cfg.Validate()
-	case domain.ResourceKindCompute:
+	case domain.SlotRoleBackend:
 		var cfg domain.ComputeConfig
 		if err := json.Unmarshal(config, &cfg); err != nil {
 			return fmt.Errorf("invalid compute config: %w", err)
 		}
 		return cfg.Validate()
-	case domain.ResourceKindStaticSite:
+	case domain.SlotRoleFrontend:
 		var cfg domain.StaticSiteConfig
 		if err := json.Unmarshal(config, &cfg); err != nil {
 			return fmt.Errorf("invalid static site config: %w", err)
 		}
 		return cfg.Validate()
-	case domain.ResourceKindDNSDomain:
+	case domain.SlotRoleDNS:
 		return domain.DnsDomainConfig{}.Validate()
 	default:
-		return fmt.Errorf("unknown slot type: %s", kind)
+		return fmt.Errorf("unknown slot role: %s", role)
 	}
 }

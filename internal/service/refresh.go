@@ -21,18 +21,20 @@ const (
 )
 
 type RefreshEngine struct {
-	store    store.Querier
-	registry *provider.Registry
-	sf       singleflight.Group
-	mu       sync.RWMutex
-	entries  map[string]time.Time
+	store     store.Querier
+	registry  *provider.Registry
+	credStore domain.CredentialStore
+	sf        singleflight.Group
+	mu        sync.RWMutex
+	entries   map[string]time.Time
 }
 
-func NewRefreshEngine(q store.Querier, reg *provider.Registry) *RefreshEngine {
+func NewRefreshEngine(q store.Querier, reg *provider.Registry, credStore domain.CredentialStore) *RefreshEngine {
 	return &RefreshEngine{
-		store:    q,
-		registry: reg,
-		entries:  make(map[string]time.Time),
+		store:     q,
+		registry:  reg,
+		credStore: credStore,
+		entries:   make(map[string]time.Time),
 	}
 }
 
@@ -64,10 +66,10 @@ func (e *RefreshEngine) Invalidate(keys ...string) {
 	e.mu.Unlock()
 }
 
-func (e *RefreshEngine) FanOutRefresh(ctx context.Context, accountID, externalID string) error {
+func (e *RefreshEngine) FanOutRefresh(ctx context.Context, connectionID, externalID string) error {
 	bindings, err := e.store.FanOutBindingsByAccountExternal(ctx, store.FanOutBindingsByAccountExternalParams{
-		AccountID:  accountID,
-		ExternalID: externalID,
+		ConnectionID: connectionID,
+		ExternalID:   externalID,
 	})
 	if err != nil {
 		return fmt.Errorf("fanout bindings: %w", err)
@@ -76,28 +78,27 @@ func (e *RefreshEngine) FanOutRefresh(ctx context.Context, accountID, externalID
 		return nil
 	}
 
-	acct, err := e.store.GetProviderAccount(ctx, accountID)
+	connRow, err := e.store.GetProviderConnection(ctx, connectionID)
 	if err != nil {
-		return fmt.Errorf("fanout account: %w", err)
+		return fmt.Errorf("fanout connection: %w", err)
 	}
 
-	p := e.registry.Get(acct.Provider)
+	p := e.registry.Get(connRow.Provider)
 	if p == nil {
-		return fmt.Errorf("fanout provider %s not found", acct.Provider)
+		return fmt.Errorf("fanout provider %s not found", connRow.Provider)
 	}
 	insp, ok := p.(provider.Inspector)
 	if !ok {
-		return fmt.Errorf("fanout provider %s not an Inspector", acct.Provider)
+		return fmt.Errorf("fanout provider %s not an Inspector", connRow.Provider)
 	}
 
-	provAcct := &domain.ProviderAccount{
-		ID:             acct.ID,
-		Provider:       domain.ProviderType(acct.Provider),
-		Label:          acct.Label,
-		TokenEncrypted: acct.EncryptedToken,
+	cred, err := e.credStore.Resolve(ctx, connectionID)
+	if err != nil {
+		return fmt.Errorf("fanout resolve credential: %w", err)
 	}
 
-	ext, err := insp.GetResource(ctx, provAcct, externalID)
+	conn := storeConnectionToDomain(connRow)
+	ext, err := insp.GetResource(ctx, &conn, cred, externalID)
 	if err != nil {
 		return e.fanoutError(ctx, bindings, err)
 	}
@@ -127,7 +128,8 @@ func (e *RefreshEngine) hit(ctx context.Context, bindingID string) (*domain.Bind
 	if err != nil {
 		return nil, false
 	}
-	return bindingToDomain(b), true
+	db := storeBindingToDomain(b)
+	return &db, true
 }
 
 func (e *RefreshEngine) doFetch(ctx context.Context, bindingID string) (*domain.Binding, error) {
@@ -136,28 +138,27 @@ func (e *RefreshEngine) doFetch(ctx context.Context, bindingID string) (*domain.
 		return nil, fmt.Errorf("get binding: %w", err)
 	}
 
-	acct, err := e.store.GetProviderAccount(ctx, b.AccountID)
+	connRow, err := e.store.GetProviderConnection(ctx, b.ConnectionID)
 	if err != nil {
-		return nil, fmt.Errorf("get account: %w", err)
+		return nil, fmt.Errorf("get connection: %w", err)
 	}
 
-	p := e.registry.Get(b.Provider)
+	p := e.registry.Get(connRow.Provider)
 	if p == nil {
-		return nil, fmt.Errorf("provider %s not found", b.Provider)
+		return nil, fmt.Errorf("provider %s not found", connRow.Provider)
 	}
 	insp, ok := p.(provider.Inspector)
 	if !ok {
-		return nil, fmt.Errorf("provider %s not an Inspector", b.Provider)
+		return nil, fmt.Errorf("provider %s not an Inspector", connRow.Provider)
 	}
 
-	provAcct := &domain.ProviderAccount{
-		ID:             acct.ID,
-		Provider:       domain.ProviderType(acct.Provider),
-		Label:          acct.Label,
-		TokenEncrypted: acct.EncryptedToken,
+	cred, err := e.credStore.Resolve(ctx, b.ConnectionID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve credential: %w", err)
 	}
 
-	ext, err := insp.GetResource(ctx, provAcct, b.ExternalID)
+	conn := storeConnectionToDomain(connRow)
+	ext, err := insp.GetResource(ctx, &conn, cred, b.ExternalID)
 	if err != nil {
 		var pErr *provider.Error
 		if errors.As(err, &pErr) {
@@ -171,10 +172,10 @@ func (e *RefreshEngine) doFetch(ctx context.Context, bindingID string) (*domain.
 					LastSyncedAt:   &now,
 				})
 				e.setTTL(bindingID, ttlOK)
-				db := bindingToDomain(b)
+				db := storeBindingToDomain(b)
 				db.SyncStatus = domain.SyncStatusOrphaned
 				db.LastSyncedAt = now
-				return db, nil
+				return &db, nil
 			case provider.KindUnauthorized:
 				now := time.Now().UTC().Format(time.RFC3339)
 				_ = e.store.UpdateBindingSyncStatus(ctx, store.UpdateBindingSyncStatusParams{
@@ -184,10 +185,10 @@ func (e *RefreshEngine) doFetch(ctx context.Context, bindingID string) (*domain.
 					LastSyncedAt:   &now,
 				})
 				e.setTTL(bindingID, ttlOK)
-				db := bindingToDomain(b)
+				db := storeBindingToDomain(b)
 				db.SyncStatus = domain.SyncStatusAuthError
 				db.LastSyncedAt = now
-				return db, nil
+				return &db, nil
 			}
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
@@ -198,10 +199,10 @@ func (e *RefreshEngine) doFetch(ctx context.Context, bindingID string) (*domain.
 			LastSyncedAt:   &now,
 		})
 		e.setTTL(bindingID, ttlNegative)
-		db := bindingToDomain(b)
+		db := storeBindingToDomain(b)
 		db.SyncStatus = domain.SyncStatusError
 		db.LastSyncedAt = now
-		return db, nil
+		return &db, nil
 	}
 
 	metaJSON, _ := json.Marshal(ext.Meta)
@@ -213,11 +214,11 @@ func (e *RefreshEngine) doFetch(ctx context.Context, bindingID string) (*domain.
 		LastSyncedAt:   &now,
 	})
 	e.setTTL(bindingID, ttlOK)
-	db := bindingToDomain(b)
+	db := storeBindingToDomain(b)
 	db.SyncStatus = domain.SyncStatusOK
 	db.CachedMeta = ext.Meta
 	db.LastSyncedAt = now
-	return db, nil
+	return &db, nil
 }
 
 func (e *RefreshEngine) fanoutError(ctx context.Context, bindings []store.Binding, err error) error {
@@ -273,25 +274,4 @@ func (e *RefreshEngine) setTTL(bindingID string, d time.Duration) {
 	e.mu.Lock()
 	e.entries[bindingID] = time.Now().Add(d)
 	e.mu.Unlock()
-}
-
-func bindingToDomain(b store.Binding) *domain.Binding {
-	db := &domain.Binding{
-		ID:           b.ID,
-		SlotID:       b.SlotID,
-		AccountID:    b.AccountID,
-		ExternalID:   b.ExternalID,
-		SyncStatus:   domain.SyncStatus(b.SyncStatus),
-		CreatedAt:    b.CreatedAt,
-	}
-	if b.LastSyncedAt != nil {
-		db.LastSyncedAt = *b.LastSyncedAt
-	}
-	if b.CachedMetaJson != "" && b.CachedMetaJson != "{}" {
-		var meta map[string]any
-		if err := json.Unmarshal([]byte(b.CachedMetaJson), &meta); err == nil {
-			db.CachedMeta = meta
-		}
-	}
-	return db
 }

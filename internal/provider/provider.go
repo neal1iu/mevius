@@ -38,6 +38,10 @@ type DNSManager interface {
 	DeleteRecord(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string, recordID string) error
 }
 
+type Discoverer interface {
+	ListExternalResources(ctx context.Context, conn *domain.ProviderConnection, credential []byte, product domain.ProductType) ([]domain.ExternalResource, error)
+}
+
 type Registry struct {
 	providers map[string]Provider
 }

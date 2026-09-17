@@ -16,67 +16,52 @@ import (
 	"github.com/google/uuid"
 )
 
-var capabilityMatrix = map[domain.ResourceKind][]domain.ProviderType{
-	domain.ResourceKindRepo:       {domain.ProviderTypeGitHub},
-	domain.ResourceKindCompute:    {domain.ProviderTypeCloudflare},
-	domain.ResourceKindStaticSite: {domain.ProviderTypeCloudflare, domain.ProviderTypeVercel},
-	domain.ResourceKindDNSDomain:  {domain.ProviderTypeCloudflare, domain.ProviderTypeVercel},
-}
-
 var (
-	ErrUnsupportedCombo = errors.New("slot type and provider combination not supported")
-	ErrDuplicateBinding = errors.New("binding already exists for this slot, account, and external resource")
+	ErrUnsupportedCombo = errors.New("product does not support this slot role")
+	ErrBindingExists    = errors.New("slot already has a binding")
 )
 
 type BindingService struct {
-	store    store.Querier
-	registry *provider.Registry
-	engine   *RefreshEngine
+	store     store.Querier
+	registry  *provider.Registry
+	credStore domain.CredentialStore
+	engine    *RefreshEngine
 }
 
-func NewBindingService(q store.Querier, reg *provider.Registry, eng *RefreshEngine) *BindingService {
-	return &BindingService{store: q, registry: reg, engine: eng}
+func NewBindingService(q store.Querier, reg *provider.Registry, credStore domain.CredentialStore, eng *RefreshEngine) *BindingService {
+	return &BindingService{store: q, registry: reg, credStore: credStore, engine: eng}
 }
 
-func ValidateCapability(kind domain.ResourceKind, providerType domain.ProviderType) error {
-	providers, ok := capabilityMatrix[kind]
-	if !ok {
-		return ErrUnsupportedCombo
-	}
-	for _, p := range providers {
-		if p == providerType {
-			return nil
-		}
-	}
-	return ErrUnsupportedCombo
-}
-
-func (s *BindingService) Discover(ctx context.Context, accountID string, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
-	acct, err := s.store.GetProviderAccount(ctx, accountID)
+func (s *BindingService) Discover(ctx context.Context, connectionID string, product domain.ProductType) ([]domain.ExternalResource, error) {
+	connRow, err := s.store.GetProviderConnection(ctx, connectionID)
 	if err != nil {
-		return nil, fmt.Errorf("get account: %w", err)
+		return nil, fmt.Errorf("get connection: %w", err)
 	}
 
-	p := s.registry.Get(acct.Provider)
+	p := s.registry.Get(connRow.Provider)
 	if p == nil {
-		return nil, fmt.Errorf("provider %s not found", acct.Provider)
+		return nil, fmt.Errorf("provider %s not found", connRow.Provider)
 	}
 
-	provAcct := &domain.ProviderAccount{
-		ID:             acct.ID,
-		Provider:       domain.ProviderType(acct.Provider),
-		Label:          acct.Label,
-		TokenEncrypted: acct.EncryptedToken,
+	disc, ok := p.(provider.Discoverer)
+	if !ok {
+		return nil, fmt.Errorf("provider %s does not support discovery", connRow.Provider)
 	}
 
-	resources, err := p.ListExternalResources(ctx, provAcct, kind)
+	cred, err := s.credStore.Resolve(ctx, connectionID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve credential: %w", err)
+	}
+
+	conn := storeConnectionToDomain(connRow)
+	resources, err := disc.ListExternalResources(ctx, &conn, cred, product)
 	if err != nil {
 		return nil, err
 	}
 	return resources, nil
 }
 
-func (s *BindingService) Bind(ctx context.Context, slotID, accountID, externalID string) (*domain.Binding, error) {
+func (s *BindingService) Bind(ctx context.Context, slotID, connectionID string, product domain.ProductType, externalID string) (*domain.Binding, error) {
 	slot, err := s.store.GetSlot(ctx, slotID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -85,16 +70,40 @@ func (s *BindingService) Bind(ctx context.Context, slotID, accountID, externalID
 		return nil, fmt.Errorf("get slot: %w", err)
 	}
 
-	acct, err := s.store.GetProviderAccount(ctx, accountID)
+	connRow, err := s.store.GetProviderConnection(ctx, connectionID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sql.ErrNoRows
 		}
-		return nil, fmt.Errorf("get account: %w", err)
+		return nil, fmt.Errorf("get connection: %w", err)
 	}
 
-	if err := ValidateCapability(domain.ResourceKind(slot.Type), domain.ProviderType(acct.Provider)); err != nil {
-		return nil, err
+	p := s.registry.Get(connRow.Provider)
+	if p == nil {
+		return nil, fmt.Errorf("provider %s not found", connRow.Provider)
+	}
+
+	desc := p.Descriptor()
+	var matchedProduct *domain.ProductDescriptor
+	for i := range desc.Products {
+		if desc.Products[i].ID == string(product) {
+			matchedProduct = &desc.Products[i]
+			break
+		}
+	}
+	if matchedProduct == nil {
+		return nil, fmt.Errorf("provider %s does not offer product %s", connRow.Provider, product)
+	}
+
+	roleSupported := false
+	for _, r := range matchedProduct.Roles {
+		if r == domain.SlotRole(slot.Role) {
+			roleSupported = true
+			break
+		}
+	}
+	if !roleSupported {
+		return nil, ErrUnsupportedCombo
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -103,8 +112,8 @@ func (s *BindingService) Bind(ctx context.Context, slotID, accountID, externalID
 	err = s.store.InsertBinding(ctx, store.InsertBindingParams{
 		ID:             id,
 		SlotID:         slotID,
-		AccountID:      accountID,
-		Provider:       acct.Provider,
+		ConnectionID:   connectionID,
+		Product:        string(product),
 		ExternalID:     externalID,
 		CachedMetaJson: "{}",
 		SyncStatus:     string(domain.SyncStatusNever),
@@ -112,23 +121,17 @@ func (s *BindingService) Bind(ctx context.Context, slotID, accountID, externalID
 		CreatedAt:      now,
 	})
 	if err != nil {
-		if isUniqueConstraintError(err) {
-			return nil, ErrDuplicateBinding
+		if strings.Contains(err.Error(), "UNIQUE constraint") {
+			return nil, ErrBindingExists
 		}
 		return nil, fmt.Errorf("insert binding: %w", err)
 	}
 
-	p := s.registry.Get(acct.Provider)
-	insp, ok := p.(provider.Inspector)
-	if ok {
-		provAcct := &domain.ProviderAccount{
-			ID:             acct.ID,
-			Provider:       domain.ProviderType(acct.Provider),
-			Label:          acct.Label,
-			TokenEncrypted: acct.EncryptedToken,
-		}
-
-		ext, inspectErr := insp.GetResource(ctx, provAcct, externalID)
+	cred, credErr := s.credStore.Resolve(ctx, connectionID)
+	insp, inspOK := p.(provider.Inspector)
+	if inspOK && credErr == nil {
+		conn := storeConnectionToDomain(connRow)
+		ext, inspectErr := insp.GetResource(ctx, &conn, cred, externalID)
 		if inspectErr == nil && ext != nil {
 			metaJSON, _ := json.Marshal(ext.Meta)
 			_ = s.store.UpdateBindingSyncStatus(ctx, store.UpdateBindingSyncStatusParams{
@@ -138,32 +141,30 @@ func (s *BindingService) Bind(ctx context.Context, slotID, accountID, externalID
 				LastSyncedAt:   &now,
 			})
 
-			db := &domain.Binding{
+			return &domain.Binding{
 				ID:           id,
 				SlotID:       slotID,
-				AccountID:    accountID,
+				ConnectionID: connectionID,
 				ExternalID:   externalID,
+				ExternalURL:  ext.ExternalID,
+				Product:      product,
 				CachedMeta:   ext.Meta,
 				SyncStatus:   domain.SyncStatusOK,
 				LastSyncedAt: now,
 				CreatedAt:    now,
-			}
-			if ext.ExternalID != "" {
-				db.ExternalURL = ext.ExternalID
-			}
-			return db, nil
+			}, nil
 		}
 	}
 
-	db := &domain.Binding{
-		ID:         id,
-		SlotID:     slotID,
-		AccountID:  accountID,
-		ExternalID: externalID,
-		SyncStatus: domain.SyncStatusNever,
-		CreatedAt:  now,
-	}
-	return db, nil
+	return &domain.Binding{
+		ID:           id,
+		SlotID:       slotID,
+		ConnectionID: connectionID,
+		ExternalID:   externalID,
+		Product:      product,
+		SyncStatus:   domain.SyncStatusNever,
+		CreatedAt:    now,
+	}, nil
 }
 
 func (s *BindingService) Unbind(ctx context.Context, bindingID string) error {
@@ -188,8 +189,4 @@ func (s *BindingService) ListBySlot(ctx context.Context, slotID string) ([]domai
 
 func (s *BindingService) Refresh(ctx context.Context, bindingID string) (*domain.Binding, error) {
 	return s.engine.Refresh(ctx, bindingID)
-}
-
-func isUniqueConstraintError(err error) bool {
-	return strings.Contains(err.Error(), "UNIQUE constraint")
 }

@@ -15,10 +15,10 @@ import (
 )
 
 type ProjectService struct {
-	q *store.Queries
+	q store.Querier
 }
 
-func NewProjectService(q *store.Queries) *ProjectService {
+func NewProjectService(q store.Querier) *ProjectService {
 	return &ProjectService{q: q}
 }
 
@@ -183,7 +183,7 @@ func storeSlotToDomain(s store.Slot) domain.Slot {
 		ID:        s.ID,
 		ProjectID: s.ProjectID,
 		Name:      s.Name,
-		Kind:      domain.ResourceKind(s.Type),
+		Role:      domain.SlotRole(s.Role),
 		Config:    []byte(s.ConfigJson),
 		CreatedAt: s.CreatedAt,
 	}
@@ -197,8 +197,9 @@ func storeBindingToDomain(b store.Binding) domain.Binding {
 	db := domain.Binding{
 		ID:           b.ID,
 		SlotID:       b.SlotID,
-		AccountID:    b.AccountID,
+		ConnectionID: b.ConnectionID,
 		ExternalID:   b.ExternalID,
+		Product:      domain.ProductType(b.Product),
 		CachedMeta:   meta,
 		SyncStatus:   domain.SyncStatus(b.SyncStatus),
 		LastSyncedAt: "",
