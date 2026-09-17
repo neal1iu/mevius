@@ -17,21 +17,21 @@ type cfZone struct {
 }
 
 type cfDNSRecord struct {
-	ID        string `json:"id,omitempty"`
-	Type      string `json:"type"`
-	Name      string `json:"name"`
-	Content   string `json:"content"`
-	TTL       int    `json:"ttl"`
-	Proxied   *bool  `json:"proxied,omitempty"`
-	Priority  *int   `json:"priority,omitempty"`
-	ZoneID    string `json:"zone_id,omitempty"`
-	ZoneName  string `json:"zone_name,omitempty"`
-	CreatedOn string `json:"created_on,omitempty"`
+	ID         string `json:"id,omitempty"`
+	Type       string `json:"type"`
+	Name       string `json:"name"`
+	Content    string `json:"content"`
+	TTL        int    `json:"ttl"`
+	Proxied    *bool  `json:"proxied,omitempty"`
+	Priority   *int   `json:"priority,omitempty"`
+	ZoneID     string `json:"zone_id,omitempty"`
+	ZoneName   string `json:"zone_name,omitempty"`
+	CreatedOn  string `json:"created_on,omitempty"`
 	ModifiedOn string `json:"modified_on,omitempty"`
 }
 
-func (p *CloudflareProvider) listZones(ctx context.Context, token string) ([]cfZone, error) {
-	body, err := p.doGet(ctx, token, "/zones")
+func (p *CloudflareProvider) listZones(ctx context.Context, token, endpoint string) ([]cfZone, error) {
+	body, err := p.doGet(ctx, token, endpoint, "/zones")
 	if err != nil {
 		return nil, err
 	}
@@ -59,8 +59,8 @@ func (p *CloudflareProvider) listZones(ctx context.Context, token string) ([]cfZ
 	return zones, nil
 }
 
-func (p *CloudflareProvider) getZone(ctx context.Context, token, zoneID string) (*cfZone, error) {
-	body, err := p.doGet(ctx, token, "/zones/"+zoneID)
+func (p *CloudflareProvider) getZone(ctx context.Context, token, endpoint, zoneID string) (*cfZone, error) {
+	body, err := p.doGet(ctx, token, endpoint, "/zones/"+zoneID)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +88,8 @@ func (p *CloudflareProvider) getZone(ctx context.Context, token, zoneID string) 
 	return &zone, nil
 }
 
-func (p *CloudflareProvider) listDNSRecords(ctx context.Context, token, zoneID string) ([]cfDNSRecord, error) {
-	body, err := p.doGet(ctx, token, "/zones/"+zoneID+"/dns_records")
+func (p *CloudflareProvider) listDNSRecords(ctx context.Context, token, endpoint, zoneID string) ([]cfDNSRecord, error) {
+	body, err := p.doGet(ctx, token, endpoint, "/zones/"+zoneID+"/dns_records")
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (p *CloudflareProvider) listDNSRecords(ctx context.Context, token, zoneID s
 	return records, nil
 }
 
-func (p *CloudflareProvider) createDNSRecord(ctx context.Context, token, zoneID string, record cfDNSRecord) (*cfDNSRecord, error) {
+func (p *CloudflareProvider) createDNSRecord(ctx context.Context, token, endpoint, zoneID string, record cfDNSRecord) (*cfDNSRecord, error) {
 	bodyBytes, err := json.Marshal(record)
 	if err != nil {
 		return nil, &provider.Error{
@@ -129,7 +129,7 @@ func (p *CloudflareProvider) createDNSRecord(ctx context.Context, token, zoneID 
 		"Authorization": "Bearer " + token,
 		"Content-Type":  "application/json",
 	}
-	body, err := p.cfClient(token).DoReq(ctx, "POST", "/zones/"+zoneID+"/dns_records", bodyBytes, headers)
+	body, err := p.cfClient(endpoint).DoReq(ctx, "POST", "/zones/"+zoneID+"/dns_records", bodyBytes, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +157,7 @@ func (p *CloudflareProvider) createDNSRecord(ctx context.Context, token, zoneID 
 	return &created, nil
 }
 
-func (p *CloudflareProvider) updateDNSRecord(ctx context.Context, token, zoneID, recordID string, record cfDNSRecord) (*cfDNSRecord, error) {
+func (p *CloudflareProvider) updateDNSRecord(ctx context.Context, token, endpoint, zoneID, recordID string, record cfDNSRecord) (*cfDNSRecord, error) {
 	bodyBytes, err := json.Marshal(record)
 	if err != nil {
 		return nil, &provider.Error{
@@ -169,7 +169,7 @@ func (p *CloudflareProvider) updateDNSRecord(ctx context.Context, token, zoneID,
 		"Authorization": "Bearer " + token,
 		"Content-Type":  "application/json",
 	}
-	body, err := p.cfClient(token).DoReq(ctx, "PATCH", "/zones/"+zoneID+"/dns_records/"+recordID, bodyBytes, headers)
+	body, err := p.cfClient(endpoint).DoReq(ctx, "PATCH", "/zones/"+zoneID+"/dns_records/"+recordID, bodyBytes, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -197,13 +197,16 @@ func (p *CloudflareProvider) updateDNSRecord(ctx context.Context, token, zoneID,
 	return &updated, nil
 }
 
-func (p *CloudflareProvider) deleteDNSRecord(ctx context.Context, token, zoneID, recordID string) error {
-	_, err := p.doDelete(ctx, token, "/zones/"+zoneID+"/dns_records/"+recordID)
+func (p *CloudflareProvider) deleteDNSRecord(ctx context.Context, token, endpoint, zoneID, recordID string) error {
+	_, err := p.doDelete(ctx, token, endpoint, "/zones/"+zoneID+"/dns_records/"+recordID)
 	return err
 }
 
-func (p *CloudflareProvider) ListRecords(ctx context.Context, account *domain.ProviderAccount, zoneID string) ([]domain.DNSRecord, error) {
-	records, err := p.listDNSRecords(ctx, account.TokenEncrypted, zoneID)
+func (p *CloudflareProvider) ListRecords(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string) ([]domain.DNSRecord, error) {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
+
+	records, err := p.listDNSRecords(ctx, token, endpoint, zoneID)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +227,10 @@ func (p *CloudflareProvider) ListRecords(ctx context.Context, account *domain.Pr
 	return result, nil
 }
 
-func (p *CloudflareProvider) CreateRecord(ctx context.Context, account *domain.ProviderAccount, zoneID string, record domain.DNSRecord) (*domain.DNSRecord, error) {
+func (p *CloudflareProvider) CreateRecord(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string, record domain.DNSRecord) (*domain.DNSRecord, error) {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
+
 	cfRecord := cfDNSRecord{
 		Type:     record.Type,
 		Name:     record.Name,
@@ -233,7 +239,7 @@ func (p *CloudflareProvider) CreateRecord(ctx context.Context, account *domain.P
 		Proxied:  record.Proxied,
 		Priority: record.Priority,
 	}
-	created, err := p.createDNSRecord(ctx, account.TokenEncrypted, zoneID, cfRecord)
+	created, err := p.createDNSRecord(ctx, token, endpoint, zoneID, cfRecord)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +255,10 @@ func (p *CloudflareProvider) CreateRecord(ctx context.Context, account *domain.P
 	}, nil
 }
 
-func (p *CloudflareProvider) UpdateRecord(ctx context.Context, account *domain.ProviderAccount, zoneID string, recordID string, record domain.DNSRecord) (*domain.DNSRecord, error) {
+func (p *CloudflareProvider) UpdateRecord(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string, recordID string, record domain.DNSRecord) (*domain.DNSRecord, error) {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
+
 	cfRecord := cfDNSRecord{
 		Type:     record.Type,
 		Name:     record.Name,
@@ -258,7 +267,7 @@ func (p *CloudflareProvider) UpdateRecord(ctx context.Context, account *domain.P
 		Proxied:  record.Proxied,
 		Priority: record.Priority,
 	}
-	updated, err := p.updateDNSRecord(ctx, account.TokenEncrypted, zoneID, recordID, cfRecord)
+	updated, err := p.updateDNSRecord(ctx, token, endpoint, zoneID, recordID, cfRecord)
 	if err != nil {
 		return nil, err
 	}
@@ -274,6 +283,9 @@ func (p *CloudflareProvider) UpdateRecord(ctx context.Context, account *domain.P
 	}, nil
 }
 
-func (p *CloudflareProvider) DeleteRecord(ctx context.Context, account *domain.ProviderAccount, zoneID string, recordID string) error {
-	return p.deleteDNSRecord(ctx, account.TokenEncrypted, zoneID, recordID)
+func (p *CloudflareProvider) DeleteRecord(ctx context.Context, conn *domain.ProviderConnection, credential []byte, zoneID string, recordID string) error {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
+
+	return p.deleteDNSRecord(ctx, token, endpoint, zoneID, recordID)
 }

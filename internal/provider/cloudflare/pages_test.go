@@ -22,11 +22,14 @@ func TestPagesListExternalResources(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, domain.ResourceKindStaticSite)
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
+	resources, err := p.ListExternalResources(context.Background(), conn, []byte("test-token"), "cloudflare.pages")
 	if err != nil {
 		t.Fatalf("ListExternalResources failed: %v", err)
 	}
@@ -42,13 +45,15 @@ func TestPagesListExternalResources(t *testing.T) {
 }
 
 func TestPagesListExternalResources_UnsupportedKind(t *testing.T) {
-	p := NewProvider("")
-	_, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, domain.ResourceKindRepo)
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
+	_, err := p.ListExternalResources(context.Background(), conn, []byte("test"), "invalid.product")
 	if err == nil {
-		t.Fatal("expected error for unsupported kind")
+		t.Fatal("expected error for unsupported product")
 	}
 	var pErr *provider.Error
 	if !errors.As(err, &pErr) {
@@ -74,7 +79,13 @@ func TestPagesCreateResource(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
 	spec := domain.ResourceSpec{
 		Name: "new-site",
 		Kind: domain.ResourceKindStaticSite,
@@ -82,10 +93,7 @@ func TestPagesCreateResource(t *testing.T) {
 			"production_branch": "main",
 		},
 	}
-	res, err := p.CreateResource(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, spec)
+	res, err := p.CreateResource(context.Background(), conn, []byte("test-token"), spec)
 	if err != nil {
 		t.Fatalf("CreateResource failed: %v", err)
 	}
@@ -119,11 +127,14 @@ func TestPagesDeleteResource(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteResource(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, "my-site")
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
+	err := p.DeleteResource(context.Background(), conn, []byte("test-token"), "my-site")
 	if err != nil {
 		t.Fatalf("DeleteResource failed: %v", err)
 	}
@@ -156,11 +167,14 @@ func TestPagesTriggerDeploy_GitConnected(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	ev, err := p.TriggerDeploy(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, &domain.Binding{ExternalID: "my-site"}, &domain.Slot{})
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
+	ev, err := p.TriggerDeploy(context.Background(), conn, []byte("test-token"), &domain.Binding{ExternalID: "my-site"}, &domain.Slot{})
 	if err != nil {
 		t.Fatalf("TriggerDeploy failed: %v", err)
 	}
@@ -182,11 +196,14 @@ func TestPagesTriggerDeploy_DirectUploadUnsupported(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.TriggerDeploy(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, &domain.Binding{ExternalID: "direct-site"}, &domain.Slot{})
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
+	_, err := p.TriggerDeploy(context.Background(), conn, []byte("test-token"), &domain.Binding{ExternalID: "direct-site"}, &domain.Slot{})
 	if err == nil {
 		t.Fatal("expected unsupported error")
 	}
@@ -206,11 +223,14 @@ func TestPagesTriggerDeploy_InProgressConflict(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.TriggerDeploy(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, &domain.Binding{ExternalID: "inprogress-site"}, &domain.Slot{})
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
+	_, err := p.TriggerDeploy(context.Background(), conn, []byte("test-token"), &domain.Binding{ExternalID: "inprogress-site"}, &domain.Slot{})
 	if err == nil {
 		t.Fatal("expected conflict error")
 	}
@@ -245,11 +265,14 @@ func TestPagesTriggerMatrix(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		p := NewProvider(ts.URL)
-		ev, err := p.TriggerDeploy(context.Background(), &domain.ProviderAccount{
-			TokenEncrypted: "test-token",
-			Meta:           domain.AccountMeta{AccountID: "test-aid"},
-		}, &domain.Binding{ExternalID: "git-site"}, &domain.Slot{})
+		p := NewProvider()
+		conn := &domain.ProviderConnection{
+			Endpoint: ts.URL,
+			RemoteIdentity: domain.AccountMeta{
+				Raw: map[string]any{"account_id": "test-aid"},
+			},
+		}
+		ev, err := p.TriggerDeploy(context.Background(), conn, []byte("test-token"), &domain.Binding{ExternalID: "git-site"}, &domain.Slot{})
 		if err != nil {
 			t.Fatalf("git connected: TriggerDeploy failed: %v", err)
 		}
@@ -271,11 +294,14 @@ func TestPagesTriggerMatrix(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		p := NewProvider(ts.URL)
-		_, err := p.TriggerDeploy(context.Background(), &domain.ProviderAccount{
-			TokenEncrypted: "test-token",
-			Meta:           domain.AccountMeta{AccountID: "test-aid"},
-		}, &domain.Binding{ExternalID: "direct-site"}, &domain.Slot{})
+		p := NewProvider()
+		conn := &domain.ProviderConnection{
+			Endpoint: ts.URL,
+			RemoteIdentity: domain.AccountMeta{
+				Raw: map[string]any{"account_id": "test-aid"},
+			},
+		}
+		_, err := p.TriggerDeploy(context.Background(), conn, []byte("test-token"), &domain.Binding{ExternalID: "direct-site"}, &domain.Slot{})
 		if err == nil {
 			t.Fatal("direct upload: expected error")
 		}
@@ -295,11 +321,14 @@ func TestPagesTriggerMatrix(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		p := NewProvider(ts.URL)
-		_, err := p.TriggerDeploy(context.Background(), &domain.ProviderAccount{
-			TokenEncrypted: "test-token",
-			Meta:           domain.AccountMeta{AccountID: "test-aid"},
-		}, &domain.Binding{ExternalID: "inprogress-site"}, &domain.Slot{})
+		p := NewProvider()
+		conn := &domain.ProviderConnection{
+			Endpoint: ts.URL,
+			RemoteIdentity: domain.AccountMeta{
+				Raw: map[string]any{"account_id": "test-aid"},
+			},
+		}
+		_, err := p.TriggerDeploy(context.Background(), conn, []byte("test-token"), &domain.Binding{ExternalID: "inprogress-site"}, &domain.Slot{})
 		if err == nil {
 			t.Fatal("in progress: expected error")
 		}
@@ -324,11 +353,14 @@ func TestPagesListDeployments(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	events, err := p.ListDeployments(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, &domain.Binding{ExternalID: "my-site"})
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
+	events, err := p.ListDeployments(context.Background(), conn, []byte("test-token"), &domain.Binding{ExternalID: "my-site"})
 	if err != nil {
 		t.Fatalf("ListDeployments failed: %v", err)
 	}
@@ -360,11 +392,14 @@ func TestPagesGetBuildLogs_Fallback(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	chunk, err := p.GetBuildLogs(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, &domain.Binding{ExternalID: "my-site"}, "dep-1", 100)
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
+	chunk, err := p.GetBuildLogs(context.Background(), conn, []byte("test-token"), &domain.Binding{ExternalID: "my-site"}, "dep-1", 100)
 	if err != nil {
 		t.Fatalf("GetBuildLogs failed: %v", err)
 	}
@@ -400,11 +435,14 @@ func TestPagesLogs(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		p := NewProvider(ts.URL)
-		chunk, err := p.GetBuildLogs(context.Background(), &domain.ProviderAccount{
-			TokenEncrypted: "test-token",
-			Meta:           domain.AccountMeta{AccountID: "test-aid"},
-		}, &domain.Binding{ExternalID: "my-site"}, "dep-1", 50)
+		p := NewProvider()
+		conn := &domain.ProviderConnection{
+			Endpoint: ts.URL,
+			RemoteIdentity: domain.AccountMeta{
+				Raw: map[string]any{"account_id": "test-aid"},
+			},
+		}
+		chunk, err := p.GetBuildLogs(context.Background(), conn, []byte("test-token"), &domain.Binding{ExternalID: "my-site"}, "dep-1", 50)
 		if err != nil {
 			t.Fatalf("GetBuildLogs failed: %v", err)
 		}
@@ -425,11 +463,13 @@ func TestPagesLogs(t *testing.T) {
 }
 
 func TestPagesCreateResource_RequiresName(t *testing.T) {
-	p := NewProvider("")
-	_, err := p.CreateResource(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, domain.ResourceSpec{Kind: domain.ResourceKindStaticSite})
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
+	_, err := p.CreateResource(context.Background(), conn, []byte("test"), domain.ResourceSpec{Kind: domain.ResourceKindStaticSite})
 	if err == nil {
 		t.Fatal("expected error for empty name")
 	}
@@ -453,11 +493,14 @@ func TestPagesDeleteResource_FallbackToPages(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteResource(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, "nonexistent-worker")
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
+	err := p.DeleteResource(context.Background(), conn, []byte("test-token"), "nonexistent-worker")
 	if err != nil {
 		t.Fatalf("DeleteResource failed: %v", err)
 	}

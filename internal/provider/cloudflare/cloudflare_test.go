@@ -2,6 +2,7 @@ package cloudflare
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -44,23 +45,22 @@ func TestValidateCredentials_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	meta, err := p.ValidateCredentials(context.Background(), &domain.ProviderAccount{TokenEncrypted: "test-token"})
+	p := NewProvider()
+	conn := &domain.ProviderConnection{Endpoint: ts.URL}
+	raw, err := p.ValidateCredentials(context.Background(), conn, []byte("test-token"))
 	if err != nil {
 		t.Fatalf("ValidateCredentials failed: %v", err)
 	}
-	if meta.AccountID != "test-account-id" {
-		t.Errorf("AccountID = %q, want %q", meta.AccountID, "test-account-id")
+
+	var identity map[string]any
+	if err := json.Unmarshal(raw, &identity); err != nil {
+		t.Fatalf("unmarshal identity: %v", err)
 	}
-	raw := meta.Raw
-	if raw == nil {
-		t.Fatal("Raw is nil")
+	if identity["account_id"] != "test-account-id" {
+		t.Errorf("account_id = %v, want test-account-id", identity["account_id"])
 	}
-	if raw["account_id"] != "test-account-id" {
-		t.Errorf("account_id = %v, want test-account-id", raw["account_id"])
-	}
-	if raw["account_name"] != "Test Account" {
-		t.Errorf("account_name = %v, want Test Account", raw["account_name"])
+	if identity["account_name"] != "Test Account" {
+		t.Errorf("account_name = %v, want Test Account", identity["account_name"])
 	}
 	if len(callOrder) != 2 || callOrder[0] != "verify" || callOrder[1] != "accounts" {
 		t.Errorf("call order = %v, want [verify accounts]", callOrder)
@@ -74,8 +74,8 @@ func TestValidateCredentials_Unauthorized(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderAccount{TokenEncrypted: "bad-token"})
+	p := NewProvider()
+	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("bad-token"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -95,8 +95,8 @@ func TestValidateCredentials_VerifyFails(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderAccount{TokenEncrypted: "bad-token"})
+	p := NewProvider()
+	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("bad-token"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -119,11 +119,14 @@ func TestListExternalResources_Workers(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-account-id"},
-	}, domain.ResourceKindCompute)
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-account-id"},
+		},
+	}
+	resources, err := p.ListExternalResources(context.Background(), conn, []byte("test-token"), "cloudflare.workers")
 	if err != nil {
 		t.Fatalf("ListExternalResources failed: %v", err)
 	}
@@ -145,13 +148,15 @@ func TestListExternalResources_Workers(t *testing.T) {
 }
 
 func TestListExternalResources_UnsupportedKind(t *testing.T) {
-	p := NewProvider("")
-	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test",
-		Meta:           domain.AccountMeta{AccountID: "test-account-id"},
-	}, domain.ResourceKindRepo)
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-account-id"},
+		},
+	}
+	resources, err := p.ListExternalResources(context.Background(), conn, []byte("test"), "invalid.product")
 	if err == nil {
-		t.Fatal("expected error for unsupported kind")
+		t.Fatal("expected error for unsupported product")
 	}
 	if resources != nil {
 		t.Errorf("resources = %v, want nil", resources)
@@ -175,10 +180,9 @@ func TestGetResource_Worker_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	res, err := p.GetResource(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-	}, "my-worker")
+	p := NewProvider()
+	conn := &domain.ProviderConnection{Endpoint: ts.URL}
+	res, err := p.GetResource(context.Background(), conn, []byte("test-token"), "my-worker")
 	if err != nil {
 		t.Fatalf("GetResource failed: %v", err)
 	}
@@ -194,11 +198,14 @@ func TestGetResource_NotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.GetResource(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-account-id"},
-	}, "nonexistent")
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-account-id"},
+		},
+	}
+	_, err := p.GetResource(context.Background(), conn, []byte("test-token"), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -230,15 +237,18 @@ func TestCreateResource_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-account-id"},
+		},
+	}
 	spec := domain.ResourceSpec{
 		Name: "new-worker",
 		Kind: domain.ResourceKindCompute,
 	}
-	res, err := p.CreateResource(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-account-id"},
-	}, spec)
+	res, err := p.CreateResource(context.Background(), conn, []byte("test-token"), spec)
 	if err != nil {
 		t.Fatalf("CreateResource failed: %v", err)
 	}
@@ -269,11 +279,14 @@ func TestDeleteResource_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteResource(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-account-id"},
-	}, "my-worker")
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-account-id"},
+		},
+	}
+	err := p.DeleteResource(context.Background(), conn, []byte("test-token"), "my-worker")
 	if err != nil {
 		t.Fatalf("DeleteResource failed: %v", err)
 	}
@@ -286,11 +299,14 @@ func TestDeleteResource_NotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteResource(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-		Meta:           domain.AccountMeta{AccountID: "test-account-id"},
-	}, "nonexistent")
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-account-id"},
+		},
+	}
+	err := p.DeleteResource(context.Background(), conn, []byte("test-token"), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -304,11 +320,13 @@ func TestDeleteResource_NotFound(t *testing.T) {
 }
 
 func TestCreateResource_RequiresName(t *testing.T) {
-	p := NewProvider("")
-	_, err := p.CreateResource(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test",
-		Meta:           domain.AccountMeta{AccountID: "test-account-id"},
-	}, domain.ResourceSpec{})
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-account-id"},
+		},
+	}
+	_, err := p.CreateResource(context.Background(), conn, []byte("test"), domain.ResourceSpec{})
 	if err == nil {
 		t.Fatal("expected error for empty name")
 	}
@@ -325,8 +343,8 @@ func TestInvalidToken_MappedUnauthorized(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderAccount{TokenEncrypted: "invalid"})
+	p := NewProvider()
+	_, err := p.ValidateCredentials(context.Background(), &domain.ProviderConnection{Endpoint: ts.URL}, []byte("invalid"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -349,10 +367,9 @@ func TestListExternalResources_DNSDomains(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	resources, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-	}, domain.ResourceKindDNSDomain)
+	p := NewProvider()
+	conn := &domain.ProviderConnection{Endpoint: ts.URL}
+	resources, err := p.ListExternalResources(context.Background(), conn, []byte("test-token"), "cloudflare.dns")
 	if err != nil {
 		t.Fatalf("ListExternalResources failed: %v", err)
 	}
@@ -386,10 +403,9 @@ func TestGetResource_Zone(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	res, err := p.GetResource(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-	}, "zone-001")
+	p := NewProvider()
+	conn := &domain.ProviderConnection{Endpoint: ts.URL}
+	res, err := p.GetResource(context.Background(), conn, []byte("test-token"), "zone-001")
 	if err != nil {
 		t.Fatalf("GetResource failed: %v", err)
 	}
@@ -414,10 +430,9 @@ func TestListRecords_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	records, err := p.ListRecords(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-	}, "zone-001")
+	p := NewProvider()
+	conn := &domain.ProviderConnection{Endpoint: ts.URL}
+	records, err := p.ListRecords(context.Background(), conn, []byte("test-token"), "zone-001")
 	if err != nil {
 		t.Fatalf("ListRecords failed: %v", err)
 	}
@@ -461,11 +476,10 @@ func TestCreateRecord_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
+	conn := &domain.ProviderConnection{Endpoint: ts.URL}
 	proxied := true
-	rec, err := p.CreateRecord(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-	}, "zone-001", domain.DNSRecord{
+	rec, err := p.CreateRecord(context.Background(), conn, []byte("test-token"), "zone-001", domain.DNSRecord{
 		Type:    "CNAME",
 		Name:    "blog.example.com",
 		Content: "example.github.io",
@@ -503,11 +517,10 @@ func TestUpdateRecord_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
+	p := NewProvider()
+	conn := &domain.ProviderConnection{Endpoint: ts.URL}
 	proxied := true
-	rec, err := p.UpdateRecord(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-	}, "zone-001", "rec-001", domain.DNSRecord{
+	rec, err := p.UpdateRecord(context.Background(), conn, []byte("test-token"), "zone-001", "rec-001", domain.DNSRecord{
 		Type:    "A",
 		Name:    "www.example.com",
 		Content: "203.0.113.1",
@@ -538,10 +551,9 @@ func TestDeleteRecord_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteRecord(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-	}, "zone-001", "rec-001")
+	p := NewProvider()
+	conn := &domain.ProviderConnection{Endpoint: ts.URL}
+	err := p.DeleteRecord(context.Background(), conn, []byte("test-token"), "zone-001", "rec-001")
 	if err != nil {
 		t.Fatalf("DeleteRecord failed: %v", err)
 	}
@@ -554,10 +566,9 @@ func TestDeleteRecord_NotFound(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	err := p.DeleteRecord(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test-token",
-	}, "zone-001", "nonexistent")
+	p := NewProvider()
+	conn := &domain.ProviderConnection{Endpoint: ts.URL}
+	err := p.DeleteRecord(context.Background(), conn, []byte("test-token"), "zone-001", "nonexistent")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -577,11 +588,14 @@ func TestZeroNetworkCalls(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	p := NewProvider(ts.URL)
-	_, err := p.ListExternalResources(context.Background(), &domain.ProviderAccount{
-		TokenEncrypted: "test",
-		Meta:           domain.AccountMeta{AccountID: "test-aid"},
-	}, domain.ResourceKindCompute)
+	p := NewProvider()
+	conn := &domain.ProviderConnection{
+		Endpoint: ts.URL,
+		RemoteIdentity: domain.AccountMeta{
+			Raw: map[string]any{"account_id": "test-aid"},
+		},
+	}
+	_, err := p.ListExternalResources(context.Background(), conn, []byte("test"), "cloudflare.workers")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

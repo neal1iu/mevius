@@ -62,8 +62,8 @@ type cfPagesCreateReq struct {
 	ProductionBranch string `json:"production_branch"`
 }
 
-func (p *CloudflareProvider) listPagesProjects(ctx context.Context, token, accountID string) ([]cfPagesProject, error) {
-	body, err := p.doGet(ctx, token, "/accounts/"+accountID+"/pages/projects")
+func (p *CloudflareProvider) listPagesProjects(ctx context.Context, token, endpoint, accountID string) ([]cfPagesProject, error) {
+	body, err := p.doGet(ctx, token, endpoint, "/accounts/"+accountID+"/pages/projects")
 	if err != nil {
 		return nil, err
 	}
@@ -81,8 +81,8 @@ func (p *CloudflareProvider) listPagesProjects(ctx context.Context, token, accou
 	return projects, nil
 }
 
-func (p *CloudflareProvider) getPagesProject(ctx context.Context, token, accountID, name string) (*cfPagesProject, error) {
-	body, err := p.doGet(ctx, token, "/accounts/"+accountID+"/pages/projects/"+name)
+func (p *CloudflareProvider) getPagesProject(ctx context.Context, token, endpoint, accountID, name string) (*cfPagesProject, error) {
+	body, err := p.doGet(ctx, token, endpoint, "/accounts/"+accountID+"/pages/projects/"+name)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (p *CloudflareProvider) getPagesProject(ctx context.Context, token, account
 	return &project, nil
 }
 
-func (p *CloudflareProvider) createPagesProject(ctx context.Context, token, accountID, name, branch string) (*cfPagesProject, error) {
+func (p *CloudflareProvider) createPagesProject(ctx context.Context, token, endpoint, accountID, name, branch string) (*cfPagesProject, error) {
 	req := cfPagesCreateReq{Name: name, ProductionBranch: branch}
 	bodyBytes, err := json.Marshal(req)
 	if err != nil {
@@ -110,7 +110,7 @@ func (p *CloudflareProvider) createPagesProject(ctx context.Context, token, acco
 		"Authorization": "Bearer " + token,
 		"Content-Type":  "application/json",
 	}
-	body, err := p.cfClient(token).DoReq(ctx, "POST", "/accounts/"+accountID+"/pages/projects", bodyBytes, headers)
+	body, err := p.cfClient(endpoint).DoReq(ctx, "POST", "/accounts/"+accountID+"/pages/projects", bodyBytes, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -128,13 +128,13 @@ func (p *CloudflareProvider) createPagesProject(ctx context.Context, token, acco
 	return &project, nil
 }
 
-func (p *CloudflareProvider) deletePagesProject(ctx context.Context, token, accountID, name string) error {
-	_, err := p.doDelete(ctx, token, "/accounts/"+accountID+"/pages/projects/"+name)
+func (p *CloudflareProvider) deletePagesProject(ctx context.Context, token, endpoint, accountID, name string) error {
+	_, err := p.doDelete(ctx, token, endpoint, "/accounts/"+accountID+"/pages/projects/"+name)
 	return err
 }
 
-func (p *CloudflareProvider) listPagesDeployments(ctx context.Context, token, accountID, projectName string) ([]cfPagesDeployment, error) {
-	body, err := p.doGet(ctx, token, "/accounts/"+accountID+"/pages/projects/"+projectName+"/deployments")
+func (p *CloudflareProvider) listPagesDeployments(ctx context.Context, token, endpoint, accountID, projectName string) ([]cfPagesDeployment, error) {
+	body, err := p.doGet(ctx, token, endpoint, "/accounts/"+accountID+"/pages/projects/"+projectName+"/deployments")
 	if err != nil {
 		return nil, err
 	}
@@ -152,12 +152,12 @@ func (p *CloudflareProvider) listPagesDeployments(ctx context.Context, token, ac
 	return deployments, nil
 }
 
-func (p *CloudflareProvider) retryPagesDeployment(ctx context.Context, token, accountID, projectName, deployID string) (*cfPagesDeployment, error) {
+func (p *CloudflareProvider) retryPagesDeployment(ctx context.Context, token, endpoint, accountID, projectName, deployID string) (*cfPagesDeployment, error) {
 	path := "/accounts/" + accountID + "/pages/projects/" + projectName + "/deployments/" + deployID + "/retry"
 	headers := map[string]string{
 		"Authorization": "Bearer " + token,
 	}
-	body, err := p.cfClient(token).DoReq(ctx, "POST", path, nil, headers)
+	body, err := p.cfClient(endpoint).DoReq(ctx, "POST", path, nil, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -240,17 +240,19 @@ func (p *CloudflareProvider) dashboardURL(accountID, projectName, deployID strin
 // Deployer interface
 // ---------------------------------------------------------------------------
 
-func (p *CloudflareProvider) TriggerDeploy(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
-	aid := account.Meta.AccountID
+func (p *CloudflareProvider) TriggerDeploy(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, slot *domain.Slot) (*domain.DeployEvent, error) {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
+	aid := accountIDFromMeta(conn.RemoteIdentity.Raw)
 	if aid == "" {
-		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in meta"}
+		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in remote identity"}
 	}
 	projectName := binding.ExternalID
 	if projectName == "" {
 		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "binding.external_id (project name) is required"}
 	}
 
-	project, err := p.getPagesProject(ctx, account.TokenEncrypted, aid, projectName)
+	project, err := p.getPagesProject(ctx, token, endpoint, aid, projectName)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +269,7 @@ func (p *CloudflareProvider) TriggerDeploy(ctx context.Context, account *domain.
 		return nil, &provider.Error{Kind: provider.KindUnsupported, ProviderMsg: fmt.Sprintf("project %q has no previous deployment to retry", projectName)}
 	}
 
-	deploy, err := p.retryPagesDeployment(ctx, account.TokenEncrypted, aid, projectName, project.LatestDeployment.ID)
+	deploy, err := p.retryPagesDeployment(ctx, token, endpoint, aid, projectName, project.LatestDeployment.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -276,17 +278,19 @@ func (p *CloudflareProvider) TriggerDeploy(ctx context.Context, account *domain.
 	return &ev, nil
 }
 
-func (p *CloudflareProvider) ListDeployments(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding) ([]domain.DeployEvent, error) {
-	aid := account.Meta.AccountID
+func (p *CloudflareProvider) ListDeployments(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding) ([]domain.DeployEvent, error) {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
+	aid := accountIDFromMeta(conn.RemoteIdentity.Raw)
 	if aid == "" {
-		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in meta"}
+		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in remote identity"}
 	}
 	projectName := binding.ExternalID
 	if projectName == "" {
 		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "binding.external_id (project name) is required"}
 	}
 
-	deployments, err := p.listPagesDeployments(ctx, account.TokenEncrypted, aid, projectName)
+	deployments, err := p.listPagesDeployments(ctx, token, endpoint, aid, projectName)
 	if err != nil {
 		return nil, err
 	}
@@ -300,17 +304,19 @@ func (p *CloudflareProvider) ListDeployments(ctx context.Context, account *domai
 
 // GetBuildLogs returns deployment build logs.
 // SPIKE: CF Pages REST has no raw log endpoint; fallback = stage summary + dashboard link.
-func (p *CloudflareProvider) GetBuildLogs(ctx context.Context, account *domain.ProviderAccount, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error) {
-	aid := account.Meta.AccountID
+func (p *CloudflareProvider) GetBuildLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, binding *domain.Binding, deployID string, tail int) (domain.LogChunk, error) {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
+	aid := accountIDFromMeta(conn.RemoteIdentity.Raw)
 	if aid == "" {
-		return domain.LogChunk{}, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in meta"}
+		return domain.LogChunk{}, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in remote identity"}
 	}
 	projectName := binding.ExternalID
 	if projectName == "" {
 		return domain.LogChunk{}, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "binding.external_id (project name) is required"}
 	}
 
-	body, err := p.doGet(ctx, account.TokenEncrypted, "/accounts/"+aid+"/pages/projects/"+projectName+"/deployments/"+deployID)
+	body, err := p.doGet(ctx, token, endpoint, "/accounts/"+aid+"/pages/projects/"+projectName+"/deployments/"+deployID)
 	if err != nil {
 		return domain.LogChunk{}, err
 	}

@@ -22,7 +22,9 @@ const (
 	ResourceKindRepository ResourceKind = "repository"
 	ResourceKindWorker     ResourceKind = "worker"
 	ResourceKindStaticSite ResourceKind = "static_site"
+	ResourceKindCompute   ResourceKind = "compute"
 	ResourceKindDNSZone    ResourceKind = "dns_zone"
+	ResourceKindDNSDomain ResourceKind = "dns_domain"
 )
 
 type SlotRole string
@@ -131,6 +133,7 @@ type ExternalResource struct {
 
 type ResourceSpec struct {
 	Name        string         `json:"name"`
+	Kind        ResourceKind   `json:"kind,omitempty"`
 	Description string         `json:"description,omitempty"`
 	Private     bool           `json:"private,omitempty"`
 	Extra       map[string]any `json:"extra,omitempty"`

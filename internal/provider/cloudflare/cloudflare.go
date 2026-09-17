@@ -16,16 +16,18 @@ import (
 	"mevius/internal/provider"
 )
 
-type CloudflareProvider struct {
-	baseURL string
-}
+type CloudflareProvider struct{}
 
-func NewProvider(baseURL string) *CloudflareProvider {
-	return &CloudflareProvider{baseURL: baseURL}
+func NewProvider() *CloudflareProvider {
+	return &CloudflareProvider{}
 }
 
 func (p *CloudflareProvider) Type() string {
 	return "cloudflare"
+}
+
+func (p *CloudflareProvider) Descriptor() domain.ProviderDescriptor {
+	return provider.CloudflareDescriptor
 }
 
 type cfResponse struct {
@@ -56,30 +58,41 @@ type cfWorkerMeta struct {
 	ModifiedOn string `json:"modified_on"`
 }
 
-func (p *CloudflareProvider) cfClient(token string) *provider.Client {
-	return provider.NewClient(p.baseURL)
+func defaultEndpoint(endpoint string) string {
+	if endpoint == "" {
+		return "https://api.cloudflare.com/client/v4"
+	}
+	return endpoint
 }
 
-func (p *CloudflareProvider) doGet(ctx context.Context, token, path string) ([]byte, error) {
+func (p *CloudflareProvider) cfClient(endpoint string) *provider.Client {
+	return provider.NewClient(endpoint)
+}
+
+func extractToken(credential []byte) string {
+	return string(credential)
+}
+
+func (p *CloudflareProvider) doGet(ctx context.Context, token, endpoint, path string) ([]byte, error) {
 	headers := map[string]string{
 		"Authorization": "Bearer " + token,
 	}
-	return p.cfClient(token).DoReq(ctx, http.MethodGet, path, nil, headers)
+	return p.cfClient(endpoint).DoReq(ctx, http.MethodGet, path, nil, headers)
 }
 
-func (p *CloudflareProvider) doDelete(ctx context.Context, token, path string) ([]byte, error) {
+func (p *CloudflareProvider) doDelete(ctx context.Context, token, endpoint, path string) ([]byte, error) {
 	headers := map[string]string{
 		"Authorization": "Bearer " + token,
 	}
-	return p.cfClient(token).DoReq(ctx, http.MethodDelete, path, nil, headers)
+	return p.cfClient(endpoint).DoReq(ctx, http.MethodDelete, path, nil, headers)
 }
 
-func (p *CloudflareProvider) doPut(ctx context.Context, token, path string, body []byte, contentType string) ([]byte, error) {
+func (p *CloudflareProvider) doPut(ctx context.Context, token, endpoint, path string, body []byte, contentType string) ([]byte, error) {
 	headers := map[string]string{
 		"Authorization": "Bearer " + token,
 		"Content-Type":  contentType,
 	}
-	return p.cfClient(token).DoReq(ctx, http.MethodPut, path, body, headers)
+	return p.cfClient(endpoint).DoReq(ctx, http.MethodPut, path, body, headers)
 }
 
 func parseCFResponse(body []byte) (*cfResponse, error) {
@@ -101,24 +114,25 @@ func errorMsg(errs []cfError) string {
 	return strings.Join(msgs, "; ")
 }
 
-func (p *CloudflareProvider) ValidateCredentials(ctx context.Context, account *domain.ProviderAccount) (domain.AccountMeta, error) {
-	token := account.TokenEncrypted
+func (p *CloudflareProvider) ValidateCredentials(ctx context.Context, conn *domain.ProviderConnection, credential []byte) (json.RawMessage, error) {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
 
-	body, err := p.doGet(ctx, token, "/user/tokens/verify")
+	body, err := p.doGet(ctx, token, endpoint, "/user/tokens/verify")
 	if err != nil {
-		return domain.AccountMeta{}, err
+		return nil, err
 	}
 
 	resp, err := parseCFResponse(body)
 	if err != nil {
-		return domain.AccountMeta{}, &provider.Error{
+		return nil, &provider.Error{
 			Kind:        provider.KindUpstream,
 			ProviderMsg: fmt.Sprintf("parse verify response: %v", err),
 		}
 	}
 	if !resp.Success {
 		msg := errorMsg(resp.Errors)
-		return domain.AccountMeta{}, &provider.Error{
+		return nil, &provider.Error{
 			Kind:        provider.KindUnauthorized,
 			ProviderMsg: msg,
 		}
@@ -126,33 +140,33 @@ func (p *CloudflareProvider) ValidateCredentials(ctx context.Context, account *d
 
 	var verify cfTokenVerify
 	if err := json.Unmarshal(resp.Result, &verify); err != nil {
-		return domain.AccountMeta{}, &provider.Error{
+		return nil, &provider.Error{
 			Kind:        provider.KindUpstream,
 			ProviderMsg: "parse token verify result",
 		}
 	}
 	if verify.Status != "active" {
-		return domain.AccountMeta{}, &provider.Error{
+		return nil, &provider.Error{
 			Kind:        provider.KindUnauthorized,
 			ProviderMsg: fmt.Sprintf("token status is %q, want active", verify.Status),
 		}
 	}
 
-	body, err = p.doGet(ctx, token, "/accounts")
+	body, err = p.doGet(ctx, token, endpoint, "/accounts")
 	if err != nil {
-		return domain.AccountMeta{}, err
+		return nil, err
 	}
 
 	resp, err = parseCFResponse(body)
 	if err != nil {
-		return domain.AccountMeta{}, &provider.Error{
+		return nil, &provider.Error{
 			Kind:        provider.KindUpstream,
 			ProviderMsg: fmt.Sprintf("parse accounts response: %v", err),
 		}
 	}
 	if !resp.Success {
 		msg := errorMsg(resp.Errors)
-		return domain.AccountMeta{}, &provider.Error{
+		return nil, &provider.Error{
 			Kind:        provider.KindUpstream,
 			ProviderMsg: msg,
 		}
@@ -160,40 +174,55 @@ func (p *CloudflareProvider) ValidateCredentials(ctx context.Context, account *d
 
 	var accounts []cfAccount
 	if err := json.Unmarshal(resp.Result, &accounts); err != nil {
-		return domain.AccountMeta{}, &provider.Error{
+		return nil, &provider.Error{
 			Kind:        provider.KindUpstream,
 			ProviderMsg: "parse accounts list",
 		}
 	}
 	if len(accounts) == 0 {
-		return domain.AccountMeta{}, &provider.Error{
+		return nil, &provider.Error{
 			Kind:        provider.KindUpstream,
 			ProviderMsg: "no accounts found for token",
 		}
 	}
 
 	acct := accounts[0]
-	return domain.AccountMeta{
-		AccountID: acct.ID,
-		Raw: map[string]any{
-			"account_id":   acct.ID,
-			"account_name": acct.Name,
-		},
-	}, nil
+	identity := map[string]any{
+		"account_id":   acct.ID,
+		"account_name": acct.Name,
+	}
+	raw, err := json.Marshal(identity)
+	if err != nil {
+		return nil, &provider.Error{
+			Kind:        provider.KindUpstream,
+			ProviderMsg: "marshal identity",
+		}
+	}
+	return json.RawMessage(raw), nil
 }
 
-func (p *CloudflareProvider) ListExternalResources(ctx context.Context, account *domain.ProviderAccount, kind domain.ResourceKind) ([]domain.ExternalResource, error) {
-	switch kind {
-	case domain.ResourceKindCompute:
-		aid := account.Meta.AccountID
+func accountIDFromMeta(meta map[string]any) string {
+	if v, ok := meta["account_id"].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func (p *CloudflareProvider) ListExternalResources(ctx context.Context, conn *domain.ProviderConnection, credential []byte, product domain.ProductType) ([]domain.ExternalResource, error) {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
+
+	switch product {
+	case "cloudflare.workers":
+		aid := accountIDFromMeta(conn.RemoteIdentity.Raw)
 		if aid == "" {
 			return nil, &provider.Error{
 				Kind:        provider.KindUpstream,
-				ProviderMsg: "account_id is required in meta",
+				ProviderMsg: "account_id is required in remote identity",
 			}
 		}
 
-		body, err := p.doGet(ctx, account.TokenEncrypted, "/accounts/"+aid+"/workers/scripts")
+		body, err := p.doGet(ctx, token, endpoint, "/accounts/"+aid+"/workers/scripts")
 		if err != nil {
 			return nil, err
 		}
@@ -233,12 +262,12 @@ func (p *CloudflareProvider) ListExternalResources(ctx context.Context, account 
 		}
 		return resources, nil
 
-	case domain.ResourceKindStaticSite:
-		aid := account.Meta.AccountID
+	case "cloudflare.pages":
+		aid := accountIDFromMeta(conn.RemoteIdentity.Raw)
 		if aid == "" {
-			return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in meta"}
+			return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in remote identity"}
 		}
-		projects, err := p.listPagesProjects(ctx, account.TokenEncrypted, aid)
+		projects, err := p.listPagesProjects(ctx, token, endpoint, aid)
 		if err != nil {
 			return nil, err
 		}
@@ -248,8 +277,8 @@ func (p *CloudflareProvider) ListExternalResources(ctx context.Context, account 
 		}
 		return resources, nil
 
-	case domain.ResourceKindDNSDomain:
-		zones, err := p.listZones(ctx, account.TokenEncrypted)
+	case "cloudflare.dns":
+		zones, err := p.listZones(ctx, token, endpoint)
 		if err != nil {
 			return nil, err
 		}
@@ -269,13 +298,16 @@ func (p *CloudflareProvider) ListExternalResources(ctx context.Context, account 
 	default:
 		return nil, &provider.Error{
 			Kind:        provider.KindUnsupported,
-			ProviderMsg: "cloudflare does not support resource kind: " + string(kind),
+			ProviderMsg: "cloudflare does not support product: " + string(product),
 		}
 	}
 }
 
-func (p *CloudflareProvider) GetResource(ctx context.Context, account *domain.ProviderAccount, externalID string) (*domain.ExternalResource, error) {
-	zone, err := p.getZone(ctx, account.TokenEncrypted, externalID)
+func (p *CloudflareProvider) GetResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) (*domain.ExternalResource, error) {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
+
+	zone, err := p.getZone(ctx, token, endpoint, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -325,10 +357,12 @@ func buildWorkerUploadBody() ([]byte, string, error) {
 	return buf.Bytes(), contentType, nil
 }
 
-func (p *CloudflareProvider) CreateResource(ctx context.Context, account *domain.ProviderAccount, spec domain.ResourceSpec) (*domain.ExternalResource, error) {
-	aid := account.Meta.AccountID
+func (p *CloudflareProvider) CreateResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, spec domain.ResourceSpec) (*domain.ExternalResource, error) {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
+	aid := accountIDFromMeta(conn.RemoteIdentity.Raw)
 	if aid == "" {
-		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in meta"}
+		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in remote identity"}
 	}
 	if spec.Name == "" {
 		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "spec.name is required"}
@@ -342,7 +376,7 @@ func (p *CloudflareProvider) CreateResource(ctx context.Context, account *domain
 				branch = b
 			}
 		}
-		project, err := p.createPagesProject(ctx, account.TokenEncrypted, aid, spec.Name, branch)
+		project, err := p.createPagesProject(ctx, token, endpoint, aid, spec.Name, branch)
 		if err != nil {
 			return nil, err
 		}
@@ -359,7 +393,7 @@ func (p *CloudflareProvider) CreateResource(ctx context.Context, account *domain
 		}
 
 		path := "/accounts/" + aid + "/workers/scripts/" + spec.Name
-		body, err := p.doPut(ctx, account.TokenEncrypted, path, bodyBytes, contentType)
+		body, err := p.doPut(ctx, token, endpoint, path, bodyBytes, contentType)
 		if err != nil {
 			return nil, err
 		}
@@ -397,17 +431,19 @@ func (p *CloudflareProvider) CreateResource(ctx context.Context, account *domain
 	}
 }
 
-func (p *CloudflareProvider) DeleteResource(ctx context.Context, account *domain.ProviderAccount, externalID string) error {
-	aid := account.Meta.AccountID
+func (p *CloudflareProvider) DeleteResource(ctx context.Context, conn *domain.ProviderConnection, credential []byte, externalID string) error {
+	token := extractToken(credential)
+	endpoint := defaultEndpoint(conn.Endpoint)
+	aid := accountIDFromMeta(conn.RemoteIdentity.Raw)
 	if aid == "" {
-		return &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in meta"}
+		return &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "account_id is required in remote identity"}
 	}
 
-	_, err := p.doDelete(ctx, account.TokenEncrypted, "/accounts/"+aid+"/workers/scripts/"+externalID)
+	_, err := p.doDelete(ctx, token, endpoint, "/accounts/"+aid+"/workers/scripts/"+externalID)
 	if err != nil {
 		var pErr *provider.Error
 		if errors.As(err, &pErr) && pErr.Kind == provider.KindNotFound {
-			return p.deletePagesProject(ctx, account.TokenEncrypted, aid, externalID)
+			return p.deletePagesProject(ctx, token, endpoint, aid, externalID)
 		}
 		return err
 	}
