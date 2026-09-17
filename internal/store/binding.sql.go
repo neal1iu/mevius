@@ -19,16 +19,16 @@ func (q *Queries) DeleteBinding(ctx context.Context, id string) error {
 }
 
 const fanOutBindingsByAccountExternal = `-- name: FanOutBindingsByAccountExternal :many
-SELECT id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE account_id = ? AND external_id = ?
+SELECT id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE connection_id = ? AND external_id = ?
 `
 
 type FanOutBindingsByAccountExternalParams struct {
-	AccountID  string
-	ExternalID string
+	ConnectionID string
+	ExternalID   string
 }
 
 func (q *Queries) FanOutBindingsByAccountExternal(ctx context.Context, arg FanOutBindingsByAccountExternalParams) ([]Binding, error) {
-	rows, err := q.db.QueryContext(ctx, fanOutBindingsByAccountExternal, arg.AccountID, arg.ExternalID)
+	rows, err := q.db.QueryContext(ctx, fanOutBindingsByAccountExternal, arg.ConnectionID, arg.ExternalID)
 	if err != nil {
 		return nil, err
 	}
@@ -39,8 +39,8 @@ func (q *Queries) FanOutBindingsByAccountExternal(ctx context.Context, arg FanOu
 		if err := rows.Scan(
 			&i.ID,
 			&i.SlotID,
-			&i.AccountID,
-			&i.Provider,
+			&i.ConnectionID,
+			&i.Product,
 			&i.ExternalID,
 			&i.CachedMetaJson,
 			&i.SyncStatus,
@@ -61,7 +61,7 @@ func (q *Queries) FanOutBindingsByAccountExternal(ctx context.Context, arg FanOu
 }
 
 const getBinding = `-- name: GetBinding :one
-SELECT id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE id = ?
+SELECT id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE id = ?
 `
 
 func (q *Queries) GetBinding(ctx context.Context, id string) (Binding, error) {
@@ -70,8 +70,8 @@ func (q *Queries) GetBinding(ctx context.Context, id string) (Binding, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.SlotID,
-		&i.AccountID,
-		&i.Provider,
+		&i.ConnectionID,
+		&i.Product,
 		&i.ExternalID,
 		&i.CachedMetaJson,
 		&i.SyncStatus,
@@ -82,15 +82,15 @@ func (q *Queries) GetBinding(ctx context.Context, id string) (Binding, error) {
 }
 
 const insertBinding = `-- name: InsertBinding :exec
-INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at)
+INSERT INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertBindingParams struct {
 	ID             string
 	SlotID         string
-	AccountID      string
-	Provider       string
+	ConnectionID   string
+	Product        string
 	ExternalID     string
 	CachedMetaJson string
 	SyncStatus     string
@@ -102,8 +102,8 @@ func (q *Queries) InsertBinding(ctx context.Context, arg InsertBindingParams) er
 	_, err := q.db.ExecContext(ctx, insertBinding,
 		arg.ID,
 		arg.SlotID,
-		arg.AccountID,
-		arg.Provider,
+		arg.ConnectionID,
+		arg.Product,
 		arg.ExternalID,
 		arg.CachedMetaJson,
 		arg.SyncStatus,
@@ -114,7 +114,7 @@ func (q *Queries) InsertBinding(ctx context.Context, arg InsertBindingParams) er
 }
 
 const listBindingsBySlot = `-- name: ListBindingsBySlot :many
-SELECT id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE slot_id = ? ORDER BY created_at DESC
+SELECT id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE slot_id = ? ORDER BY created_at DESC
 `
 
 // binding queries
@@ -130,8 +130,8 @@ func (q *Queries) ListBindingsBySlot(ctx context.Context, slotID string) ([]Bind
 		if err := rows.Scan(
 			&i.ID,
 			&i.SlotID,
-			&i.AccountID,
-			&i.Provider,
+			&i.ConnectionID,
+			&i.Product,
 			&i.ExternalID,
 			&i.CachedMetaJson,
 			&i.SyncStatus,
@@ -152,7 +152,7 @@ func (q *Queries) ListBindingsBySlot(ctx context.Context, slotID string) ([]Bind
 }
 
 const listBindingsBySlots = `-- name: ListBindingsBySlots :many
-SELECT id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE slot_id IN (/*SLOTS*/) ORDER BY slot_id, created_at DESC
+SELECT id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE slot_id IN (/*SLOTS*/) ORDER BY slot_id, created_at DESC
 `
 
 func (q *Queries) ListBindingsBySlots(ctx context.Context, slotIDs []string) ([]Binding, error) {
@@ -166,7 +166,7 @@ func (q *Queries) ListBindingsBySlots(ctx context.Context, slotIDs []string) ([]
 	for i := range placeholder {
 		placeholder[i] = "?"
 	}
-	query = "SELECT id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE slot_id IN (" + joinStrings(placeholder, ",") + ") ORDER BY slot_id, created_at DESC"
+	query = "SELECT id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at FROM binding WHERE slot_id IN (" + joinStrings(placeholder, ",") + ") ORDER BY slot_id, created_at DESC"
 
 	rows, err := q.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -179,8 +179,8 @@ func (q *Queries) ListBindingsBySlots(ctx context.Context, slotIDs []string) ([]
 		if err := rows.Scan(
 			&i.ID,
 			&i.SlotID,
-			&i.AccountID,
-			&i.Provider,
+			&i.ConnectionID,
+			&i.Product,
 			&i.ExternalID,
 			&i.CachedMetaJson,
 			&i.SyncStatus,

@@ -19,7 +19,7 @@ func (q *Queries) DeleteSlot(ctx context.Context, id string) error {
 }
 
 const getSlot = `-- name: GetSlot :one
-SELECT id, project_id, type, name, config_json, created_at FROM slot WHERE id = ?
+SELECT id, project_id, role, name, config_json, created_at FROM slot WHERE id = ?
 `
 
 func (q *Queries) GetSlot(ctx context.Context, id string) (Slot, error) {
@@ -28,7 +28,7 @@ func (q *Queries) GetSlot(ctx context.Context, id string) (Slot, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
-		&i.Type,
+		&i.Role,
 		&i.Name,
 		&i.ConfigJson,
 		&i.CreatedAt,
@@ -37,14 +37,14 @@ func (q *Queries) GetSlot(ctx context.Context, id string) (Slot, error) {
 }
 
 const insertSlot = `-- name: InsertSlot :exec
-INSERT INTO slot (id, project_id, type, name, config_json, created_at)
+INSERT INTO slot (id, project_id, role, name, config_json, created_at)
 VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type InsertSlotParams struct {
 	ID         string
 	ProjectID  string
-	Type       string
+	Role       string
 	Name       string
 	ConfigJson string
 	CreatedAt  string
@@ -54,7 +54,7 @@ func (q *Queries) InsertSlot(ctx context.Context, arg InsertSlotParams) error {
 	_, err := q.db.ExecContext(ctx, insertSlot,
 		arg.ID,
 		arg.ProjectID,
-		arg.Type,
+		arg.Role,
 		arg.Name,
 		arg.ConfigJson,
 		arg.CreatedAt,
@@ -63,7 +63,7 @@ func (q *Queries) InsertSlot(ctx context.Context, arg InsertSlotParams) error {
 }
 
 const listSlotsByProject = `-- name: ListSlotsByProject :many
-SELECT id, project_id, type, name, config_json, created_at FROM slot WHERE project_id = ? ORDER BY created_at DESC
+SELECT id, project_id, role, name, config_json, created_at FROM slot WHERE project_id = ? ORDER BY created_at DESC
 `
 
 // slot queries
@@ -79,7 +79,7 @@ func (q *Queries) ListSlotsByProject(ctx context.Context, projectID string) ([]S
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProjectID,
-			&i.Type,
+			&i.Role,
 			&i.Name,
 			&i.ConfigJson,
 			&i.CreatedAt,

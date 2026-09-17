@@ -3,13 +3,13 @@
 SELECT * FROM binding WHERE slot_id = ? ORDER BY created_at DESC;
 
 -- name: FanOutBindingsByAccountExternal :many
-SELECT * FROM binding WHERE account_id = ? AND external_id = ?;
+SELECT * FROM binding WHERE connection_id = ? AND external_id = ?;
 
 -- name: GetBinding :one
 SELECT * FROM binding WHERE id = ?;
 
 -- name: InsertBinding :exec
-INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at)
+INSERT INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: UpdateBindingSyncStatus :exec

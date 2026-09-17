@@ -6,7 +6,7 @@ SELECT * FROM slot WHERE project_id = ? ORDER BY created_at DESC;
 SELECT * FROM slot WHERE id = ?;
 
 -- name: InsertSlot :exec
-INSERT INTO slot (id, project_id, type, name, config_json, created_at)
+INSERT INTO slot (id, project_id, role, name, config_json, created_at)
 VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: UpdateSlotConfig :exec

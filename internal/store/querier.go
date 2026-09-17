@@ -11,25 +11,25 @@ import (
 type Querier interface {
 	DeleteBinding(ctx context.Context, id string) error
 	DeleteProject(ctx context.Context, id string) error
-	DeleteProviderAccount(ctx context.Context, id string) error
+	DeleteProviderConnection(ctx context.Context, id string) error
 	DeleteSlot(ctx context.Context, id string) error
 	FanOutBindingsByAccountExternal(ctx context.Context, arg FanOutBindingsByAccountExternalParams) ([]Binding, error)
 	GetBinding(ctx context.Context, id string) (Binding, error)
 	GetProject(ctx context.Context, id string) (Project, error)
 	GetProjectByName(ctx context.Context, name string) (Project, error)
-	GetProviderAccount(ctx context.Context, id string) (ProviderAccount, error)
+	GetProviderConnection(ctx context.Context, id string) (ProviderConnection, error)
 	GetSlot(ctx context.Context, id string) (Slot, error)
 	InsertBinding(ctx context.Context, arg InsertBindingParams) error
 	InsertProject(ctx context.Context, arg InsertProjectParams) error
-	InsertProviderAccount(ctx context.Context, arg InsertProviderAccountParams) error
+	InsertProviderConnection(ctx context.Context, arg InsertProviderConnectionParams) error
 	InsertSlot(ctx context.Context, arg InsertSlotParams) error
 	// binding queries
 	ListBindingsBySlot(ctx context.Context, slotID string) ([]Binding, error)
 	ListBindingsBySlots(ctx context.Context, slotIDs []string) ([]Binding, error)
 	// project queries
 	ListProjects(ctx context.Context) ([]Project, error)
-	// provider_account queries
-	ListProviderAccounts(ctx context.Context) ([]ProviderAccount, error)
+	// provider_connection queries
+	ListProviderConnections(ctx context.Context) ([]ProviderConnection, error)
 	// slot queries
 	ListSlotsByProject(ctx context.Context, projectID string) ([]Slot, error)
 	UpdateBindingSyncStatus(ctx context.Context, arg UpdateBindingSyncStatusParams) error

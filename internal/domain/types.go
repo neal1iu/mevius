@@ -18,10 +18,20 @@ const (
 type ResourceKind string
 
 const (
-	ResourceKindRepo       ResourceKind = "repo"
-	ResourceKindCompute    ResourceKind = "compute"
-	ResourceKindStaticSite ResourceKind = "static-site"
-	ResourceKindDNSDomain  ResourceKind = "dns-domain"
+	ResourceKindRepository ResourceKind = "repository"
+	ResourceKindWorker     ResourceKind = "worker"
+	ResourceKindStaticSite ResourceKind = "static_site"
+	ResourceKindDNSZone    ResourceKind = "dns_zone"
+)
+
+type SlotRole string
+
+const (
+	SlotRoleSource   SlotRole = "source"
+	SlotRoleFrontend SlotRole = "frontend"
+	SlotRoleBackend  SlotRole = "backend"
+	SlotRoleDatabase SlotRole = "database"
+	SlotRoleDNS      SlotRole = "dns"
 )
 
 type ProviderType string
@@ -31,6 +41,30 @@ const (
 	ProviderTypeGitHub     ProviderType = "github"
 	ProviderTypeVercel     ProviderType = "vercel"
 )
+
+type ProductType string
+
+type Capability string
+
+type ProviderDescriptor struct {
+	Type         ProviderType `json:"type"`
+	DisplayName  string       `json:"display_name"`
+	Capabilities []Capability `json:"capabilities"`
+}
+
+type ProductDescriptor struct {
+	Product      ProductType    `json:"product"`
+	DisplayName  string         `json:"display_name"`
+	Provider     ProviderType   `json:"provider"`
+	Capabilities []Capability   `json:"capabilities"`
+	Slots        []SlotRole     `json:"slots"`
+	ConfigSchema map[string]any `json:"config_schema,omitempty"`
+}
+
+type CredentialStore interface {
+	Encrypt(plaintext []byte) ([]byte, error)
+	Decrypt(ciphertext []byte) ([]byte, error)
+}
 
 type Project struct {
 	ID          string `json:"id"`
@@ -44,8 +78,7 @@ type Slot struct {
 	ID        string          `json:"id"`
 	ProjectID string          `json:"project_id"`
 	Name      string          `json:"name"`
-	Kind      ResourceKind    `json:"kind"`
-	Provider  ProviderType    `json:"provider"`
+	Role      SlotRole        `json:"role"`
 	Config    json.RawMessage `json:"config,omitempty"`
 	CreatedAt string          `json:"created_at"`
 }
@@ -53,22 +86,25 @@ type Slot struct {
 type Binding struct {
 	ID           string         `json:"id"`
 	SlotID       string         `json:"slot_id"`
-	AccountID    string         `json:"account_id"`
+	ConnectionID string         `json:"connection_id"`
 	ExternalID   string         `json:"external_id"`
 	ExternalURL  string         `json:"external_url,omitempty"`
+	Product      ProductType    `json:"product"`
 	CachedMeta   map[string]any `json:"cached_meta,omitempty"`
 	SyncStatus   SyncStatus     `json:"sync_status"`
 	LastSyncedAt string         `json:"last_synced_at,omitempty"`
 	CreatedAt    string         `json:"created_at"`
 }
 
-type ProviderAccount struct {
-	ID             string       `json:"id"`
-	Provider       ProviderType `json:"provider"`
-	Label          string       `json:"label"`
-	TokenEncrypted string       `json:"-"`
-	Meta           AccountMeta  `json:"meta,omitempty"`
-	CreatedAt      string       `json:"created_at"`
+type ProviderConnection struct {
+	ID             string         `json:"id"`
+	Provider       ProviderType   `json:"provider"`
+	Label          string         `json:"label"`
+	Endpoint       string         `json:"endpoint,omitempty"`
+	Config         map[string]any `json:"config,omitempty"`
+	CredentialRef  string         `json:"-"`
+	RemoteIdentity AccountMeta    `json:"remote_identity,omitempty"`
+	CreatedAt      string         `json:"created_at"`
 }
 
 type AccountMeta struct {
@@ -83,10 +119,9 @@ type ExternalResource struct {
 }
 
 type ResourceSpec struct {
-	Name        string       `json:"name"`
-	Description string       `json:"description,omitempty"`
-	Private     bool         `json:"private,omitempty"`
-	Kind        ResourceKind `json:"kind"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Private     bool           `json:"private,omitempty"`
 	Extra       map[string]any `json:"extra,omitempty"`
 }
 
@@ -118,8 +153,6 @@ type RepoConfig struct {
 	Name        string `json:"name"`
 	Private     bool   `json:"private"`
 	Description string `json:"description,omitempty"`
-	WorkflowID  string `json:"workflow_id,omitempty"`
-	WorkflowRef string `json:"workflow_ref,omitempty"`
 }
 
 func (c RepoConfig) Validate() error {

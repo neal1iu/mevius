@@ -7,8 +7,8 @@ package store
 type Binding struct {
 	ID             string
 	SlotID         string
-	AccountID      string
-	Provider       string
+	ConnectionID   string
+	Product        string
 	ExternalID     string
 	CachedMetaJson string
 	SyncStatus     string
@@ -24,19 +24,21 @@ type Project struct {
 	UpdatedAt   string
 }
 
-type ProviderAccount struct {
-	ID             string
-	Provider       string
-	Label          string
-	EncryptedToken string
-	MetaJson       string
-	CreatedAt      string
+type ProviderConnection struct {
+	ID                  string
+	Provider            string
+	Label               string
+	Endpoint            string
+	ConfigJson          string
+	EncryptedCredential string
+	RemoteIdentityJson  string
+	CreatedAt           string
 }
 
 type Slot struct {
 	ID         string
 	ProjectID  string
-	Type       string
+	Role       string
 	Name       string
 	ConfigJson string
 	CreatedAt  string
