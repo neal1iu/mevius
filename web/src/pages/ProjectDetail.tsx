@@ -276,7 +276,7 @@ function ProjectDetail() {
             return (
               <Link
                 key={slot.id}
-                to={`/slots/${slot.id}`}
+                to={`/projects/${slot.project_id}/slots/${slot.id}`}
                 className="flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-muted/50"
               >
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card">

@@ -47,11 +47,12 @@ function ProviderIcon({ provider }: { provider: string }) {
   )
 }
 
-function MetaSummary({ provider, meta }: { provider: string; meta: Record<string, unknown> }) {
+function MetaSummary({ provider, meta }: { provider: string; meta?: Record<string, unknown> }) {
+  const m = meta ?? {}
   if (provider === 'github') {
-    const login = meta.login as string | undefined
-    const scopes = meta.scopes as string[] | undefined
-    const missing = meta.missing_scopes as string[] | undefined
+    const login = m.login as string | undefined
+    const scopes = m.scopes as string[] | undefined
+    const missing = m.missing_scopes as string[] | undefined
     return (
       <div className="flex flex-col gap-0.5">
         {login && <span className="font-medium text-foreground">{login}</span>}
@@ -88,7 +89,7 @@ function MetaSummary({ provider, meta }: { provider: string; meta: Record<string
 function useAccounts() {
   return useQuery<AccountResponse[]>({
     queryKey: ['accounts'],
-    queryFn: () => apiFetch<AccountResponse[]>('/v1/accounts'),
+    queryFn: () => apiFetch<AccountResponse[]>('/accounts'),
   })
 }
 
@@ -96,7 +97,7 @@ function useAddAccount() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: { provider: string; label: string; token: string }) =>
-      apiFetch<AccountResponse>('/v1/accounts', {
+      apiFetch<AccountResponse>('/accounts', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
@@ -110,7 +111,7 @@ function useDeleteAccount() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<void>(`/v1/accounts/${id}`, { method: 'DELETE' }),
+      apiFetch<void>(`/accounts/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['accounts'] })
     },

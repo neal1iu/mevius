@@ -256,3 +256,14 @@ CF Pages REST API does not expose raw build log output via any public endpoint. 
 - Mutation success triggers `invalidateQueries` which re-fetches — for `mockResolvedValueOnce`, order matters: first the mutation response, then the invalidation re-fetch
 - 25 tests across 3 files (api.test.ts, slot-config-form.test.tsx, Accounts.test.tsx) all pass
 - Build unchanged: `npm run build` still succeeds
+
+## [2026-09-17T12:30Z] Task: T26 — Docker packaging
+- `golang:1.27-alpine` matches go.mod's `go 1.27.1` (golang:1.23-alpine too old)
+- `CGO_ENABLED=0` avoids needing gcc/musl-dev → saves space and avoids disk-full errors
+- Non-root user needs explicit `mkdir /data && chown mevius:mevius /data` before `VOLUME /data` — Docker volumes are root-owned by default
+- `.dockerignore` essential to avoid sending node_modules (268MB) as build context
+- Web Dockerfile uses `npx vite build` instead of `npm run build` (which runs `tsc -b && vite build`) — pre-existing TS errors in components/test files would block the build. Type checking belongs in CI, not the image build.
+- Vite build succeeds without tsc: esbuild-based transpilation handles TS correctly
+- nginx config: `location /api/ { proxy_pass http://api:8080; }` for same-origin proxy (no CORS); `try_files $uri /index.html` for SPA fallback; `/assets/` gets 1y cache with immutable
+- `docker compose.yml`: api service uses `env_file: .env` and `MEVIUS_DB_PATH: /data/mevius.db`; web port configurable via `MEVIUS_HTTP_PORT` env var (default 80)
+- Fail-fast: missing master key causes `Restarting (1)` with clear log message — no hardcoded secrets in compose

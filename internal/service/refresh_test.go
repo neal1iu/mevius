@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
@@ -18,6 +19,8 @@ type fakeQuerier struct {
 	mu             sync.Mutex
 	bindings       map[string]store.Binding
 	accounts       map[string]store.ProviderAccount
+	slots          map[string]store.Slot
+	insertBindingErr error
 	updateStatusFn func(ctx context.Context, arg store.UpdateBindingSyncStatusParams) error
 }
 
@@ -25,6 +28,7 @@ func newFakeQuerier() *fakeQuerier {
 	return &fakeQuerier{
 		bindings: make(map[string]store.Binding),
 		accounts: make(map[string]store.ProviderAccount),
+		slots:    make(map[string]store.Slot),
 	}
 }
 
@@ -37,6 +41,18 @@ func (f *fakeQuerier) addBinding(b store.Binding) {
 func (f *fakeQuerier) addAccount(a store.ProviderAccount) {
 	f.mu.Lock()
 	f.accounts[a.ID] = a
+	f.mu.Unlock()
+}
+
+func (f *fakeQuerier) addSlot(s store.Slot) {
+	f.mu.Lock()
+	f.slots[s.ID] = s
+	f.mu.Unlock()
+}
+
+func (f *fakeQuerier) setInsertBindingErr(err error) {
+	f.mu.Lock()
+	f.insertBindingErr = err
 	f.mu.Unlock()
 }
 
@@ -57,7 +73,7 @@ func (f *fakeQuerier) GetBinding(ctx context.Context, id string) (store.Binding,
 	defer f.mu.Unlock()
 	b, ok := f.bindings[id]
 	if !ok {
-		return store.Binding{}, errors.New("not found")
+		return store.Binding{}, sql.ErrNoRows
 	}
 	return b, nil
 }
@@ -67,7 +83,7 @@ func (f *fakeQuerier) GetProviderAccount(ctx context.Context, id string) (store.
 	defer f.mu.Unlock()
 	a, ok := f.accounts[id]
 	if !ok {
-		return store.ProviderAccount{}, errors.New("not found")
+		return store.ProviderAccount{}, sql.ErrNoRows
 	}
 	return a, nil
 }
@@ -80,7 +96,7 @@ func (f *fakeQuerier) UpdateBindingSyncStatus(ctx context.Context, arg store.Upd
 	}
 	b, ok := f.bindings[arg.ID]
 	if !ok {
-		return errors.New("not found")
+		return sql.ErrNoRows
 	}
 	b.SyncStatus = arg.SyncStatus
 	b.CachedMetaJson = arg.CachedMetaJson
@@ -95,8 +111,29 @@ func (f *fakeQuerier) DeleteProviderAccount(ctx context.Context, id string) erro
 func (f *fakeQuerier) DeleteSlot(ctx context.Context, id string) error        { return nil }
 func (f *fakeQuerier) GetProject(ctx context.Context, id string) (store.Project, error) { return store.Project{}, nil }
 func (f *fakeQuerier) GetProjectByName(ctx context.Context, name string) (store.Project, error) { return store.Project{}, nil }
-func (f *fakeQuerier) GetSlot(ctx context.Context, id string) (store.Slot, error) { return store.Slot{}, nil }
-func (f *fakeQuerier) InsertBinding(ctx context.Context, arg store.InsertBindingParams) error { return nil }
+func (f *fakeQuerier) GetSlot(ctx context.Context, id string) (store.Slot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.slots[id]
+	if !ok {
+		return store.Slot{}, sql.ErrNoRows
+	}
+	return s, nil
+}
+func (f *fakeQuerier) InsertBinding(ctx context.Context, arg store.InsertBindingParams) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.insertBindingErr != nil {
+		return f.insertBindingErr
+	}
+	f.bindings[arg.ID] = store.Binding{
+		ID: arg.ID, SlotID: arg.SlotID, AccountID: arg.AccountID,
+		Provider: arg.Provider, ExternalID: arg.ExternalID,
+		CachedMetaJson: arg.CachedMetaJson, SyncStatus: arg.SyncStatus,
+		LastSyncedAt: arg.LastSyncedAt, CreatedAt: arg.CreatedAt,
+	}
+	return nil
+}
 func (f *fakeQuerier) InsertProject(ctx context.Context, arg store.InsertProjectParams) error { return nil }
 func (f *fakeQuerier) InsertProviderAccount(ctx context.Context, arg store.InsertProviderAccountParams) error { return nil }
 func (f *fakeQuerier) InsertSlot(ctx context.Context, arg store.InsertSlotParams) error { return nil }

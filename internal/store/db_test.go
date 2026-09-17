@@ -563,6 +563,52 @@ func TestIdempotentMigration(t *testing.T) {
 	}
 }
 
+func TestCascadeDeleteAccount(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	_, err = db.ExecContext(ctx, `INSERT INTO provider_account (id, provider, label, encrypted_token, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"pa-cda1", "cloudflare", "CF", "env:v1:k:n:c", `{}`, now)
+	if err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO project (id, name, description, created_at) VALUES (?, ?, ?, ?)`,
+		"proj-cda1", "proj-cda", "", now)
+	if err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, type, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"slot-cda1", "proj-cda1", "repo", "slot-cda", `{}`, now)
+	if err != nil {
+		t.Fatalf("seed slot: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"b-cda1", "slot-cda1", "pa-cda1", "cloudflare", "ext-cda1", `{}`, "ok", now, now)
+	if err != nil {
+		t.Fatalf("seed binding: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `DELETE FROM provider_account WHERE id = ?`, "pa-cda1")
+	if err != nil {
+		t.Fatalf("delete account: %v", err)
+	}
+
+	var bindingCount int
+	row := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM binding WHERE id = 'b-cda1'")
+	if err := row.Scan(&bindingCount); err != nil {
+		t.Fatalf("check binding: %v", err)
+	}
+	if bindingCount != 0 {
+		t.Error("expected binding to be cascade-deleted after account delete")
+	}
+}
+
 func TestForeignKeyEnforcement(t *testing.T) {
 	db, err := Open(":memory:")
 	if err != nil {
@@ -586,5 +632,218 @@ func TestForeignKeyEnforcement(t *testing.T) {
 		} else {
 			t.Log("SQLite foreign_keys pragma is OFF (default for in-memory), FK not enforced")
 		}
+	}
+}
+
+func TestGetProjectByName(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+	q := New(db)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	err = q.InsertProject(ctx, InsertProjectParams{
+		ID: "p1", Name: "unique-name", Description: "test", CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("InsertProject: %v", err)
+	}
+
+	p, err := q.GetProjectByName(ctx, "unique-name")
+	if err != nil {
+		t.Fatalf("GetProjectByName: %v", err)
+	}
+	if p.ID != "p1" {
+		t.Errorf("expected ID p1, got %s", p.ID)
+	}
+
+	_, err = q.GetProjectByName(ctx, "nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent project name")
+	}
+}
+
+func TestUpdateProject(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+	q := New(db)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	err = q.InsertProject(ctx, InsertProjectParams{
+		ID: "p-upd", Name: "original", Description: "desc", CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("InsertProject: %v", err)
+	}
+
+	err = q.UpdateProject(ctx, UpdateProjectParams{
+		Name: "updated-name", Description: "new-desc", UpdatedAt: now, ID: "p-upd",
+	})
+	if err != nil {
+		t.Fatalf("UpdateProject: %v", err)
+	}
+
+	p, err := q.GetProject(ctx, "p-upd")
+	if err != nil {
+		t.Fatalf("GetProject after update: %v", err)
+	}
+	if p.Name != "updated-name" {
+		t.Errorf("expected name 'updated-name', got %q", p.Name)
+	}
+	if p.Description != "new-desc" {
+		t.Errorf("expected description 'new-desc', got %q", p.Description)
+	}
+}
+
+func TestUpdateSlot(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+	q := New(db)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	err = q.InsertProject(ctx, InsertProjectParams{
+		ID: "p-sl", Name: "slot-proj", Description: "", CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("InsertProject: %v", err)
+	}
+
+	err = q.InsertSlot(ctx, InsertSlotParams{
+		ID: "sl-upd", ProjectID: "p-sl", Type: "repo", Name: "orig", ConfigJson: `{"name":"repo"}`, CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("InsertSlot: %v", err)
+	}
+
+	err = q.UpdateSlot(ctx, UpdateSlotParams{
+		Name: "renamed-slot", ConfigJson: `{"name":"repo","private":true}`, ID: "sl-upd",
+	})
+	if err != nil {
+		t.Fatalf("UpdateSlot: %v", err)
+	}
+
+	s, err := q.GetSlot(ctx, "sl-upd")
+	if err != nil {
+		t.Fatalf("GetSlot after update: %v", err)
+	}
+	if s.Name != "renamed-slot" {
+		t.Errorf("expected name 'renamed-slot', got %q", s.Name)
+	}
+	if s.ConfigJson != `{"name":"repo","private":true}` {
+		t.Errorf("expected config updated, got %q", s.ConfigJson)
+	}
+}
+
+func TestListBindingsBySlots(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+	q := New(db)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	_, err = db.ExecContext(ctx, `INSERT INTO provider_account (id, provider, label, encrypted_token, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"pa-lbs", "cloudflare", "CF", "env:v1:k:n:c", `{}`, now)
+	if err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO project (id, name, description, created_at) VALUES (?, ?, ?, ?)`,
+		"proj-lbs", "lbs-proj", "", now)
+	if err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, type, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"slot-a", "proj-lbs", "repo", "a", `{}`, now)
+	if err != nil {
+		t.Fatalf("seed slot a: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO slot (id, project_id, type, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"slot-b", "proj-lbs", "static-site", "b", `{}`, now)
+	if err != nil {
+		t.Fatalf("seed slot b: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			fmt.Sprintf("b-lbs-%d", i), "slot-a", "pa-lbs", "cloudflare", fmt.Sprintf("ext-%d", i), `{}`, "ok", now, now)
+		if err != nil {
+			t.Fatalf("seed binding %d: %v", i, err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		_, err = db.ExecContext(ctx, `INSERT INTO binding (id, slot_id, account_id, provider, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			fmt.Sprintf("b-lbs-b-%d", i), "slot-b", "pa-lbs", "cloudflare", fmt.Sprintf("ext-b-%d", i), `{}`, "ok", now, now)
+		if err != nil {
+			t.Fatalf("seed binding b %d: %v", i, err)
+		}
+	}
+
+	bindings, err := q.ListBindingsBySlots(ctx, []string{"slot-a", "slot-b"})
+	if err != nil {
+		t.Fatalf("ListBindingsBySlots: %v", err)
+	}
+	if len(bindings) != 5 {
+		t.Errorf("expected 5 bindings, got %d", len(bindings))
+	}
+
+	empty, err := q.ListBindingsBySlots(ctx, []string{})
+	if err != nil {
+		t.Fatalf("ListBindingsBySlots empty: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("expected 0 bindings for empty slots, got %d", len(empty))
+	}
+}
+
+func TestWithTx(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+	q := New(db)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	defer tx.Rollback()
+
+	tq := q.WithTx(tx)
+	if tq == nil {
+		t.Fatal("WithTx returned nil")
+	}
+
+	err = tq.InsertProject(ctx, InsertProjectParams{
+		ID: "p-tx", Name: "tx-proj", Description: "", CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("InsertProject in tx: %v", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	p, err := q.GetProject(ctx, "p-tx")
+	if err != nil {
+		t.Fatalf("GetProject after tx commit: %v", err)
+	}
+	if p.Name != "tx-proj" {
+		t.Errorf("expected name 'tx-proj', got %q", p.Name)
 	}
 }

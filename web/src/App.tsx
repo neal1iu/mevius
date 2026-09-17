@@ -42,6 +42,7 @@ function Root() {
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/:id" element={<ProjectDetail />} />
           <Route path="/projects/:projectId/slots/:slotId" element={<SlotDetail />} />
+          <Route path="/slots/:slotId" element={<SlotDetail />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="*" element={<Navigate to="/projects" replace />} />
         </Route>

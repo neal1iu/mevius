@@ -106,8 +106,6 @@ function Toast({
   )
 }
 
-const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled']
-
 function hasInProgress(deploys: DeployResponse[]): boolean {
   return deploys.some((d) => d.in_progress)
 }
@@ -260,7 +258,7 @@ export function DeploySection({
       {logDeploy && logBindingId && (
         <LogDrawer
           bindingId={logBindingId}
-          deploy={logDeploy}
+          deployId={logDeploy.id}
           open={!!logDeploy}
           onClose={() => { setLogDeploy(null); setLogBindingId(null) }}
         />

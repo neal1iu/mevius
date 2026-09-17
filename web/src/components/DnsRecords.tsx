@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog"
 import {
   AlertDialog,
+  AlertDialogTrigger,
   AlertDialogContent,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -72,7 +73,6 @@ function DnsRecords({ bindingId, provider, verified }: DnsRecordsProps) {
   const [dialog, setDialog] = useState<DNSDialog>(null)
   const [editRecord, setEditRecord] = useState<DNSRecord | null>(null)
   const [deleteRecordId, setDeleteRecordId] = useState<string | null>(null)
-  const [deleteRecordName, setDeleteRecordName] = useState<string>("")
 
   const [formType, setFormType] = useState("A")
   const [formName, setFormName] = useState("")
@@ -118,7 +118,6 @@ function DnsRecords({ bindingId, provider, verified }: DnsRecordsProps) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["dns-records", bindingId] })
       setDeleteRecordId(null)
-      setDeleteRecordName("")
     },
   })
 
@@ -390,7 +389,7 @@ function DnsRecords({ bindingId, provider, verified }: DnsRecordsProps) {
                     <AlertDialog
                       open={deleteRecordId === rec.id}
                       onOpenChange={(open) => {
-                        if (!open) { setDeleteRecordId(null); setDeleteRecordName("") }
+                        if (!open) { setDeleteRecordId(null) }
                       }}
                     >
                       <AlertDialogTrigger asChild>
@@ -399,7 +398,6 @@ function DnsRecords({ bindingId, provider, verified }: DnsRecordsProps) {
                           size="icon-xs"
                           onClick={() => {
                             setDeleteRecordId(rec.id ?? null)
-                            setDeleteRecordName(rec.name)
                           }}
                         >
                           <Trash2 className="size-3 text-destructive" />

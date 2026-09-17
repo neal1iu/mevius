@@ -35,3 +35,12 @@ go.work.sum
 *.db
 .env
 /mevius
+
+# Agent working files
+.sisyphus/
+.omo/
+node_modules/
+test-results/
+test_*.log
+/package.json
+/package-lock.json
