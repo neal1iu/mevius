@@ -34,7 +34,7 @@ func registerSlotRoutes(r chi.Router, slotSvc *service.SlotService, projectSvc *
 }
 
 type createSlotRequest struct {
-	Type   string          `json:"type"`
+	Role   string          `json:"role"`
 	Name   string          `json:"name"`
 	Config json.RawMessage `json:"config,omitempty"`
 }
@@ -51,15 +51,15 @@ func (h *slotHandler) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "name is required", http.StatusBadRequest)
 		return
 	}
-	if req.Type == "" {
-		writeError(w, "type is required", http.StatusBadRequest)
+	if req.Role == "" {
+		writeError(w, "role is required", http.StatusBadRequest)
 		return
 	}
 	if req.Config == nil {
 		req.Config = json.RawMessage("{}")
 	}
 
-	slot, err := h.slotSvc.Create(r.Context(), pid, req.Type, req.Name, req.Config)
+	slot, err := h.slotSvc.Create(r.Context(), pid, req.Role, req.Config)
 	if err != nil {
 		if errors.Is(err, service.ErrSlotConfigInvalid) {
 			writeError(w, err.Error(), http.StatusBadRequest)
@@ -121,7 +121,7 @@ func (h *slotHandler) get(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateSlotRequest struct {
-	Name   *string         `json:"name,omitempty"`
+	Name   *string          `json:"name,omitempty"`
 	Config *json.RawMessage `json:"config,omitempty"`
 }
 

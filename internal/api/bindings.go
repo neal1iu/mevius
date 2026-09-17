@@ -21,7 +21,7 @@ type bindingHandler struct {
 func registerBindingRoutes(r chi.Router, bindingSvc *service.BindingService) {
 	h := &bindingHandler{bindingSvc: bindingSvc}
 
-	r.Get("/accounts/{id}/discover", h.discover)
+	r.Get("/connections/{id}/discover", h.discover)
 	r.Post("/slots/{id}/bindings", h.bind)
 	r.Delete("/bindings/{id}", h.unbind)
 	r.Post("/bindings/{id}/refresh", h.refresh)
@@ -29,14 +29,14 @@ func registerBindingRoutes(r chi.Router, bindingSvc *service.BindingService) {
 }
 
 func (h *bindingHandler) discover(w http.ResponseWriter, r *http.Request) {
-	accountID := chi.URLParam(r, "id")
-	kind := r.URL.Query().Get("kind")
-	if kind == "" {
-		writeError(w, "kind query parameter is required", http.StatusBadRequest)
+	connectionID := chi.URLParam(r, "id")
+	product := r.URL.Query().Get("product")
+	if product == "" {
+		writeError(w, "product query parameter is required", http.StatusBadRequest)
 		return
 	}
 
-	resources, err := h.bindingSvc.Discover(r.Context(), accountID, domain.ResourceKind(kind))
+	resources, err := h.bindingSvc.Discover(r.Context(), connectionID, product)
 	if err != nil {
 		var pErr *provider.Error
 		if errors.As(err, &pErr) {
@@ -44,7 +44,7 @@ func (h *bindingHandler) discover(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, "account not found", http.StatusNotFound)
+			writeError(w, "connection not found", http.StatusNotFound)
 			return
 		}
 		slog.Error("discover resources", slog.Any("error", err))
@@ -58,8 +58,9 @@ func (h *bindingHandler) discover(w http.ResponseWriter, r *http.Request) {
 }
 
 type bindRequest struct {
-	AccountID  string `json:"account_id"`
-	ExternalID string `json:"external_id"`
+	ConnectionID string `json:"connection_id"`
+	Product      string `json:"product"`
+	ExternalID   string `json:"external_id"`
 }
 
 func (h *bindingHandler) bind(w http.ResponseWriter, r *http.Request) {
@@ -70,8 +71,12 @@ func (h *bindingHandler) bind(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.AccountID == "" {
-		writeError(w, "account_id is required", http.StatusBadRequest)
+	if req.ConnectionID == "" {
+		writeError(w, "connection_id is required", http.StatusBadRequest)
+		return
+	}
+	if req.Product == "" {
+		writeError(w, "product is required", http.StatusBadRequest)
 		return
 	}
 	if req.ExternalID == "" {
@@ -79,10 +84,10 @@ func (h *bindingHandler) bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	binding, err := h.bindingSvc.Bind(r.Context(), slotID, req.AccountID, req.ExternalID)
+	binding, err := h.bindingSvc.Bind(r.Context(), slotID, req.ConnectionID, req.Product, req.ExternalID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, "slot or account not found", http.StatusNotFound)
+			writeError(w, "slot or connection not found", http.StatusNotFound)
 			return
 		}
 		if errors.Is(err, service.ErrUnsupportedCombo) {
