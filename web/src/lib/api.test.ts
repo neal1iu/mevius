@@ -21,7 +21,7 @@ describe("apiFetch", () => {
     const [, init] = mock.mock.calls[0]
     expect(init?.headers).toBeInstanceOf(Headers)
     const headers = init!.headers as Headers
-    expect((mock.mock.calls[0] as [string])[0]).toBe("/api/projects")
+    expect((mock.mock.calls[0] as [string])[0]).toBe("/api/v1/projects")
     expect(headers.get("Authorization")).toBe("Bearer test-token")
     expect(headers.get("Accept")).toBe("application/json")
   })

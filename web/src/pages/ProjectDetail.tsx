@@ -28,8 +28,8 @@ interface Slot {
   id: string
   project_id: string
   name: string
-  kind: 'repo' | 'compute' | 'static-site' | 'dns-domain'
-  provider: string
+  role: 'source' | 'backend' | 'frontend' | 'database' | 'dns'
+  kind?: 'repo' | 'compute' | 'static-site' | 'dns-domain'
   config?: Record<string, unknown>
   created_at: string
 }
@@ -37,7 +37,7 @@ interface Slot {
 interface Binding {
   id: string
   slot_id: string
-  account_id: string
+  connection_id: string
   external_id: string
   external_url?: string
   cached_meta?: Record<string, unknown>
@@ -48,8 +48,8 @@ interface Binding {
 
 interface ProjectDetail {
   project: Project
-  slots: Slot[]
-  bindings: Binding[]
+  slots: Slot[] | null
+  bindings: Binding[] | null
 }
 
 const slotTypeIcons: Record<string, typeof Code> = {
@@ -64,6 +64,14 @@ const slotTypeLabels: Record<string, string> = {
   compute: 'Compute',
   'static-site': 'Static Site',
   'dns-domain': 'DNS Domain',
+}
+
+const slotKindByRole: Record<string, string> = {
+  source: 'repo',
+  backend: 'compute',
+  database: 'compute',
+  frontend: 'static-site',
+  dns: 'dns-domain',
 }
 
 const statusColors: Record<string, string> = {
@@ -198,7 +206,9 @@ function ProjectDetail() {
     return <p className="text-sm text-muted-foreground">Project not found.</p>
   }
 
-  const { project, slots, bindings } = detail
+  const { project } = detail
+  const slots = detail.slots ?? []
+  const bindings = detail.bindings ?? []
   const bindingsBySlot: Record<string, Binding[]> = {}
   for (const b of bindings) {
     if (!bindingsBySlot[b.slot_id]) bindingsBySlot[b.slot_id] = []
@@ -272,7 +282,8 @@ function ProjectDetail() {
         <div className="flex flex-col divide-y divide-border rounded-xl border border-border">
           {slots.map((slot) => {
             const slotBindings = bindingsBySlot[slot.id] || []
-            const Icon = slotTypeIcons[slot.kind] || Code
+            const slotKind = slot.kind ?? slotKindByRole[slot.role] ?? slot.role
+            const Icon = slotTypeIcons[slotKind] || Code
             return (
               <Link
                 key={slot.id}
@@ -285,7 +296,7 @@ function ProjectDetail() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/60">
-                      {slotTypeLabels[slot.kind] || slot.kind}
+                      {slotTypeLabels[slotKind] || slotKind}
                     </span>
                     <StatusDot status={slotBindings.length > 0 ? worstStatus(slotBindings) : 'never'} />
                   </div>

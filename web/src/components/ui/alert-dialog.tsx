@@ -1,6 +1,6 @@
 import * as React from "react"
 import { cn } from "cn"
-import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
+import * as AlertDialogPrimitive from "radix-ui/alert-dialog"
 
 function AlertDialog({ ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />

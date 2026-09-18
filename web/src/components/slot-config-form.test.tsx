@@ -94,6 +94,16 @@ describe("SlotConfigForm — type-dependent field rendering", () => {
 })
 
 describe("SlotConfigForm — required validation", () => {
+  it("renders an empty project when the API returns null collections", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      createMockResponse({ ...PROJECT_RESPONSE, slots: null, bindings: null }),
+    )
+
+    renderProjectDetail()
+
+    expect(await screen.findByText("No slots yet")).toBeTruthy()
+  })
+
   it("shows error when name is empty on submit", async () => {
     mockFetchProject()
     const user = userEvent.setup()

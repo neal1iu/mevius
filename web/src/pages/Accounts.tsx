@@ -2,10 +2,16 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from 'radix-ui/dialog'
 import * as Label from 'radix-ui/label'
-import * as Select from 'radix-ui/select'
-import { ChevronDown, Trash2, X } from 'lucide-react'
+import { Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { apiFetch, ApiError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -89,7 +95,7 @@ function MetaSummary({ provider, meta }: { provider: string; meta?: Record<strin
 function useAccounts() {
   return useQuery<AccountResponse[]>({
     queryKey: ['accounts'],
-    queryFn: () => apiFetch<AccountResponse[]>('/accounts'),
+    queryFn: () => apiFetch<AccountResponse[]>('/connections'),
   })
 }
 
@@ -97,7 +103,7 @@ function useAddAccount() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: { provider: string; label: string; token: string }) =>
-      apiFetch<AccountResponse>('/accounts', {
+      apiFetch<AccountResponse>('/connections', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
@@ -111,7 +117,7 @@ function useDeleteAccount() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<void>(`/accounts/${id}`, { method: 'DELETE' }),
+      apiFetch<void>(`/connections/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['accounts'] })
     },
@@ -194,27 +200,18 @@ function AddAccountDialog({
               <Label.Root className="text-sm font-medium text-foreground">
                 Provider
               </Label.Root>
-              <Select.Root value={provider} onValueChange={setProvider}>
-                <Select.Trigger className="flex h-8 w-full items-center justify-between rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
-                  <Select.Value placeholder="Select provider" />
-                  <Select.Icon>
-                    <ChevronDown size={14} />
-                  </Select.Icon>
-                </Select.Trigger>
-                <Select.Portal>
-                  <Select.Content className="z-50 rounded-lg border border-border bg-background p-1 shadow-sm">
-                    {PROVIDERS.map((p) => (
-                      <Select.Item
-                        key={p.value}
-                        value={p.value}
-                        className="flex h-8 cursor-default items-center rounded-md px-2.5 text-sm outline-none hover:bg-muted data-[highlighted]:bg-muted"
-                      >
-                        <Select.ItemText>{p.label}</Select.ItemText>
-                      </Select.Item>
-                    ))}
-                  </Select.Content>
-                </Select.Portal>
-              </Select.Root>
+              <Select value={provider} onValueChange={setProvider}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select provider" />
+                </SelectTrigger>
+                <SelectContent style={{ zIndex: 60 }}>
+                  {PROVIDERS.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex flex-col gap-1.5">

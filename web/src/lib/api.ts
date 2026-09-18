@@ -155,7 +155,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 export interface Binding {
   id: string
   slot_id: string
-  account_id: string
+  connection_id: string
   external_id: string
   external_url?: string
   cached_meta?: Record<string, unknown>
@@ -175,6 +175,7 @@ export interface AccountResponse {
   provider: string
   label: string
   meta?: Record<string, unknown>
+  config?: Record<string, unknown>
   created_at: string
 }
 
@@ -182,8 +183,7 @@ export interface SlotResponse {
   id: string
   project_id: string
   name: string
-  kind: string
-  provider: string
+  role: string
   config?: unknown
   created_at: string
 }
@@ -193,21 +193,21 @@ export async function getSlot(id: string): Promise<SlotResponse> {
 }
 
 export async function listAccounts(): Promise<AccountResponse[]> {
-  return apiFetch<AccountResponse[]>('/accounts')
+  return apiFetch<AccountResponse[]>('/connections')
 }
 
 export async function listBindings(slotId: string): Promise<Binding[]> {
   return apiFetch<Binding[]>(`/slots/${slotId}/bindings`)
 }
 
-export async function discoverResources(accountId: string, kind: string): Promise<ExternalResource[]> {
-  return apiFetch<ExternalResource[]>(`/accounts/${accountId}/discover?kind=${encodeURIComponent(kind)}`)
+export async function discoverResources(connectionId: string, product: string): Promise<ExternalResource[]> {
+  return apiFetch<ExternalResource[]>(`/connections/${connectionId}/discover?product=${encodeURIComponent(product)}`)
 }
 
-export async function bindResource(slotId: string, accountId: string, externalId: string): Promise<Binding> {
+export async function bindResource(slotId: string, connectionId: string, product: string, externalId: string): Promise<Binding> {
   return apiFetch<Binding>(`/slots/${slotId}/bindings`, {
     method: 'POST',
-    body: JSON.stringify({ account_id: accountId, external_id: externalId }),
+    body: JSON.stringify({ connection_id: connectionId, product, external_id: externalId }),
   })
 }
 

@@ -1,6 +1,6 @@
 import * as React from "react"
 import { cn } from "cn"
-import * as SelectPrimitive from "@radix-ui/react-select"
+import * as SelectPrimitive from "radix-ui/select"
 import { Check, ChevronDown } from "lucide-react"
 
 function Select({ ...props }: React.ComponentProps<typeof SelectPrimitive.Root>) {

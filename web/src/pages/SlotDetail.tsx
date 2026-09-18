@@ -32,6 +32,27 @@ const CAPABILITY_MATRIX: Record<string, string[]> = {
   'dns-domain': ['cloudflare', 'vercel'],
 }
 
+const SLOT_KIND_BY_ROLE: Record<string, string> = {
+  source: 'repo',
+  backend: 'compute',
+  database: 'compute',
+  frontend: 'static-site',
+  dns: 'dns-domain',
+}
+
+const PRODUCT_BY_PROVIDER_AND_KIND: Record<string, Record<string, string>> = {
+  github: { repo: 'github.repositories' },
+  cloudflare: {
+    compute: 'cloudflare.workers',
+    'static-site': 'cloudflare.pages',
+    'dns-domain': 'cloudflare.dns',
+  },
+  vercel: {
+    'static-site': 'vercel.projects',
+    'dns-domain': 'vercel.dns',
+  },
+}
+
 const PROVIDER_LABELS: Record<string, string> = {
   github: 'GitHub',
   cloudflare: 'Cloudflare',
@@ -196,14 +217,14 @@ function BindDialog({
     enabled: open,
   })
   const { data: discoverResult, mutateAsync: doDiscover, isPending: isDiscovering } = useMutation({
-    mutationFn: ({ accountId, kind }: { accountId: string; kind: string }) =>
-      discoverResources(accountId, kind),
+    mutationFn: ({ connectionId, product }: { connectionId: string; product: string }) =>
+      discoverResources(connectionId, product),
   })
 
   const { mutateAsync: doBind, isPending: isBinding } = useMutation({
-    mutationFn: ({ accountId, externalId }: { accountId: string; externalId: string }) => {
+    mutationFn: ({ connectionId, product, externalId }: { connectionId: string; product: string; externalId: string }) => {
       const slotId = window.location.pathname.split('/').pop()!
-      return bindResource(slotId, accountId, externalId)
+      return bindResource(slotId, connectionId, product, externalId)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['slot-bindings'] })
@@ -219,6 +240,10 @@ function BindDialog({
   const [selectedAccountId, setSelectedAccountId] = useState('')
   const [selectedExternalId, setSelectedExternalId] = useState('')
   const [search, setSearch] = useState('')
+  const selectedAccount = accounts?.find((account) => account.id === selectedAccountId)
+  const selectedProduct = selectedAccount
+    ? PRODUCT_BY_PROVIDER_AND_KIND[selectedAccount.provider]?.[slotKind]
+    : undefined
 
   useEffect(() => {
     setSelectedAccountId('')
@@ -227,15 +252,15 @@ function BindDialog({
   }, [open])
 
   useEffect(() => {
-    if (selectedAccountId) {
-      doDiscover({ accountId: selectedAccountId, kind: slotKind })
+    if (selectedAccountId && selectedProduct) {
+      doDiscover({ connectionId: selectedAccountId, product: selectedProduct })
     }
-  }, [selectedAccountId, slotKind, doDiscover])
+  }, [selectedAccountId, selectedProduct, doDiscover])
 
   const handleSubmit = useCallback(async () => {
-    if (!selectedAccountId || !selectedExternalId) return
-    await doBind({ accountId: selectedAccountId, externalId: selectedExternalId })
-  }, [selectedAccountId, selectedExternalId, doBind])
+    if (!selectedAccountId || !selectedProduct || !selectedExternalId) return
+    await doBind({ connectionId: selectedAccountId, product: selectedProduct, externalId: selectedExternalId })
+  }, [selectedAccountId, selectedProduct, selectedExternalId, doBind])
 
   const resources: ExternalResource[] = discoverResult ?? []
   const searchedResources = search
@@ -366,7 +391,7 @@ function BindingCard({
   onUnbind: () => void
   isRefreshing: boolean
 }) {
-  const provider = providerFromAccountId(accounts, binding.account_id)
+  const provider = providerFromAccountId(accounts, binding.connection_id)
   const displayName = extractDisplayName(binding)
   const isOrphaned = binding.sync_status === 'orphaned'
 
@@ -513,6 +538,7 @@ function SlotDetail() {
   }
 
   const bindingList: Binding[] = bindings ?? []
+  const slotKind = slot ? (SLOT_KIND_BY_ROLE[slot.role] ?? slot.role) : ''
 
   return (
     <div>
@@ -522,7 +548,7 @@ function SlotDetail() {
             {slot?.name ?? 'Slot'}
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {slot?.kind ?? ''}
+            {slotKind}
           </p>
         </div>
         <Button size="sm" onClick={() => setBindDialogOpen(true)}>
@@ -558,7 +584,7 @@ function SlotDetail() {
         )}
       </div>
 
-      {slot && slot.kind === 'dns-domain' && bindingList.length > 0 && (
+      {slot && slotKind === 'dns-domain' && bindingList.length > 0 && (
         <div className="mt-8">
           <Card>
             <CardHeader>
@@ -567,7 +593,7 @@ function SlotDetail() {
             <CardContent>
               <DnsRecords
                 bindingId={bindingList[0].id}
-                provider={slot.provider}
+                provider={providerFromAccountId(accounts ?? [], bindingList[0].connection_id)}
                 verified={
                   bindingList[0].cached_meta
                     ? (bindingList[0].cached_meta['verified'] as boolean | undefined)
@@ -582,7 +608,7 @@ function SlotDetail() {
       {slot && (
         <BindDialog
           open={bindDialogOpen}
-          slotKind={slot.kind}
+          slotKind={slotKind}
           onClose={() => setBindDialogOpen(false)}
           onBound={() => showToast('Resource bound successfully', 'success')}
         />
