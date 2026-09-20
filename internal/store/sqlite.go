@@ -5,9 +5,9 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -18,6 +18,8 @@ import (
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
+
+var ErrLegacySchema = errors.New("legacy slot/binding schema detected; back up and remove the database before starting Mevius")
 
 // Open opens a SQLite database at the given path with WAL mode, busy timeout,
 // and MaxOpenConns(1). It runs pending goose migrations before returning.
@@ -30,6 +32,21 @@ func Open(path string) (*sql.DB, error) {
 
 	db.SetMaxOpenConns(1)
 
+	var legacyTables int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('slot', 'binding')`).Scan(&legacyTables); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("inspect sqlite schema: %w", err)
+	}
+	var hasEpochTable int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'`).Scan(&hasEpochTable); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("inspect sqlite schema epoch: %w", err)
+	}
+	if legacyTables > 0 && hasEpochTable == 0 {
+		db.Close()
+		return nil, ErrLegacySchema
+	}
+
 	goose.SetBaseFS(migrationsFS)
 	goose.SetLogger(goose.NopLogger())
 	if err := goose.SetDialect("sqlite3"); err != nil {
@@ -41,27 +58,15 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("goose up: %w", err)
 	}
 
+	var epoch string
+	if err := db.QueryRow(`SELECT value FROM schema_meta WHERE key = 'schema_epoch'`).Scan(&epoch); err != nil || epoch != "4" {
+		db.Close()
+		if err != nil {
+			return nil, fmt.Errorf("validate schema epoch: %w", err)
+		}
+		return nil, fmt.Errorf("unsupported schema epoch %q", epoch)
+	}
+
 	slog.Info("store: database migrated", "path", path)
 	return db, nil
-}
-
-type DBTX interface {
-	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
-	PrepareContext(context.Context, string) (*sql.Stmt, error)
-	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
-	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
-}
-
-func New(db DBTX) *Queries {
-	return &Queries{db: db}
-}
-
-type Queries struct {
-	db DBTX
-}
-
-func (q *Queries) WithTx(tx *sql.Tx) *Queries {
-	return &Queries{
-		db: tx,
-	}
 }

@@ -205,7 +205,7 @@ function Projects() {
               Delete Project
             </Dialog.Title>
             <p className="mt-2 text-sm text-muted-foreground">
-              Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This will also delete all slots and bindings.
+              Delete <strong>{deleteTarget?.name}</strong>? Its project links will be detached, while global resource instances and remote resources remain untouched.
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <Dialog.Close asChild>

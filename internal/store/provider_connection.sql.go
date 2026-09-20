@@ -9,17 +9,20 @@ import (
 	"context"
 )
 
-const deleteProviderConnection = `-- name: DeleteProviderConnection :exec
+const deleteProviderConnection = `-- name: DeleteProviderConnection :execrows
 DELETE FROM provider_connection WHERE id = ?
 `
 
-func (q *Queries) DeleteProviderConnection(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteProviderConnection, id)
-	return err
+func (q *Queries) DeleteProviderConnection(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteProviderConnection, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getProviderConnection = `-- name: GetProviderConnection :one
-SELECT id, provider, label, endpoint, config_json, encrypted_credential, remote_identity_json, created_at FROM provider_connection WHERE id = ?
+SELECT id, provider_id, label, endpoint, scope_type, scope_id, scope_label, config_json, encrypted_credential, remote_identity_json, permissions_json, permissions_checked_at, created_at, updated_at, auth_method FROM provider_connection WHERE id = ?
 `
 
 func (q *Queries) GetProviderConnection(ctx context.Context, id string) (ProviderConnection, error) {
@@ -27,52 +30,86 @@ func (q *Queries) GetProviderConnection(ctx context.Context, id string) (Provide
 	var i ProviderConnection
 	err := row.Scan(
 		&i.ID,
-		&i.Provider,
+		&i.ProviderID,
 		&i.Label,
 		&i.Endpoint,
+		&i.ScopeType,
+		&i.ScopeID,
+		&i.ScopeLabel,
 		&i.ConfigJson,
 		&i.EncryptedCredential,
 		&i.RemoteIdentityJson,
+		&i.PermissionsJson,
+		&i.PermissionsCheckedAt,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AuthMethod,
 	)
 	return i, err
 }
 
+const getProviderConnectionCredential = `-- name: GetProviderConnectionCredential :one
+SELECT encrypted_credential FROM provider_connection WHERE id = ?
+`
+
+func (q *Queries) GetProviderConnectionCredential(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getProviderConnectionCredential, id)
+	var encrypted_credential string
+	err := row.Scan(&encrypted_credential)
+	return encrypted_credential, err
+}
+
 const insertProviderConnection = `-- name: InsertProviderConnection :exec
-INSERT INTO provider_connection (id, provider, label, endpoint, config_json, encrypted_credential, remote_identity_json, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO provider_connection (
+    id, provider_id, label, endpoint, scope_type, scope_id, scope_label, auth_method,
+    config_json, encrypted_credential, remote_identity_json, permissions_json,
+    permissions_checked_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertProviderConnectionParams struct {
-	ID                  string
-	Provider            string
-	Label               string
-	Endpoint            string
-	ConfigJson          string
-	EncryptedCredential string
-	RemoteIdentityJson  string
-	CreatedAt           string
+	ID                   string
+	ProviderID           string
+	Label                string
+	Endpoint             string
+	ScopeType            string
+	ScopeID              string
+	ScopeLabel           string
+	AuthMethod           string
+	ConfigJson           string
+	EncryptedCredential  string
+	RemoteIdentityJson   string
+	PermissionsJson      string
+	PermissionsCheckedAt *string
+	CreatedAt            string
+	UpdatedAt            string
 }
 
 func (q *Queries) InsertProviderConnection(ctx context.Context, arg InsertProviderConnectionParams) error {
 	_, err := q.db.ExecContext(ctx, insertProviderConnection,
 		arg.ID,
-		arg.Provider,
+		arg.ProviderID,
 		arg.Label,
 		arg.Endpoint,
+		arg.ScopeType,
+		arg.ScopeID,
+		arg.ScopeLabel,
+		arg.AuthMethod,
 		arg.ConfigJson,
 		arg.EncryptedCredential,
 		arg.RemoteIdentityJson,
+		arg.PermissionsJson,
+		arg.PermissionsCheckedAt,
 		arg.CreatedAt,
+		arg.UpdatedAt,
 	)
 	return err
 }
 
 const listProviderConnections = `-- name: ListProviderConnections :many
-SELECT id, provider, label, endpoint, config_json, encrypted_credential, remote_identity_json, created_at FROM provider_connection ORDER BY created_at DESC
+SELECT id, provider_id, label, endpoint, scope_type, scope_id, scope_label, config_json, encrypted_credential, remote_identity_json, permissions_json, permissions_checked_at, created_at, updated_at, auth_method FROM provider_connection ORDER BY created_at DESC
 `
 
-// provider_connection queries
 func (q *Queries) ListProviderConnections(ctx context.Context) ([]ProviderConnection, error) {
 	rows, err := q.db.QueryContext(ctx, listProviderConnections)
 	if err != nil {
@@ -84,13 +121,20 @@ func (q *Queries) ListProviderConnections(ctx context.Context) ([]ProviderConnec
 		var i ProviderConnection
 		if err := rows.Scan(
 			&i.ID,
-			&i.Provider,
+			&i.ProviderID,
 			&i.Label,
 			&i.Endpoint,
+			&i.ScopeType,
+			&i.ScopeID,
+			&i.ScopeLabel,
 			&i.ConfigJson,
 			&i.EncryptedCredential,
 			&i.RemoteIdentityJson,
+			&i.PermissionsJson,
+			&i.PermissionsCheckedAt,
 			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AuthMethod,
 		); err != nil {
 			return nil, err
 		}
@@ -105,13 +149,30 @@ func (q *Queries) ListProviderConnections(ctx context.Context) ([]ProviderConnec
 	return items, nil
 }
 
-const getProviderConnectionCredential = `-- name: GetProviderConnectionCredential :one
-SELECT encrypted_credential FROM provider_connection WHERE id = ?
+const updateProviderConnectionCredential = `-- name: UpdateProviderConnectionCredential :exec
+UPDATE provider_connection
+SET encrypted_credential = ?, remote_identity_json = ?, permissions_json = ?,
+    permissions_checked_at = ?, updated_at = ?
+WHERE id = ?
 `
 
-func (q *Queries) GetProviderConnectionCredential(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRowContext(ctx, getProviderConnectionCredential, id)
-	var encrypted_credential string
-	err := row.Scan(&encrypted_credential)
-	return encrypted_credential, err
+type UpdateProviderConnectionCredentialParams struct {
+	EncryptedCredential  string
+	RemoteIdentityJson   string
+	PermissionsJson      string
+	PermissionsCheckedAt *string
+	UpdatedAt            string
+	ID                   string
+}
+
+func (q *Queries) UpdateProviderConnectionCredential(ctx context.Context, arg UpdateProviderConnectionCredentialParams) error {
+	_, err := q.db.ExecContext(ctx, updateProviderConnectionCredential,
+		arg.EncryptedCredential,
+		arg.RemoteIdentityJson,
+		arg.PermissionsJson,
+		arg.PermissionsCheckedAt,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
 }

@@ -7,7 +7,8 @@ import Accounts from '@/pages/Accounts'
 import Gate from '@/pages/Gate'
 import ProjectDetail from '@/pages/ProjectDetail'
 import Projects from '@/pages/Projects'
-import SlotDetail from '@/pages/SlotDetail'
+import Inventory from '@/pages/Inventory'
+import ResourceDetail from '@/pages/ResourceDetail'
 
 const queryClient = new QueryClient()
 
@@ -41,8 +42,8 @@ function Root() {
           <Route path="/" element={<Projects />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/:id" element={<ProjectDetail />} />
-          <Route path="/projects/:projectId/slots/:slotId" element={<SlotDetail />} />
-          <Route path="/slots/:slotId" element={<SlotDetail />} />
+          <Route path="/inventory" element={<Inventory />} />
+          <Route path="/inventory/:id" element={<ResourceDetail />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="*" element={<Navigate to="/projects" replace />} />
         </Route>

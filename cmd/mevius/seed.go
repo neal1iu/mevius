@@ -81,10 +81,16 @@ func clearAll(ctx context.Context, db *sql.DB) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, "DELETE FROM binding"); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM operation_request"); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM slot"); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM resource_relation"); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM project_resource"); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM resource_instance"); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM project"); err != nil {
@@ -106,16 +112,16 @@ func insertFixtures(ctx context.Context, db *sql.DB) error {
 	defer tx.Rollback()
 
 	accounts := []struct {
-		id, provider, label, endpoint, configJSON, encryptedCredential, remoteIdentityJSON string
+		id, provider, label, scopeType, scopeID, scopeLabel, encryptedCredential string
 	}{
-		{"fixture-gh", "github", "Fixture GitHub", "", `{}`, "env:v1:fixture:gh:token", `{}`},
-		{"fixture-cf", "cloudflare", "Fixture Cloudflare", "", `{}`, "env:v1:fixture:cf:token", `{}`},
-		{"fixture-vc", "vercel", "Fixture Vercel", "", `{}`, "env:v1:fixture:vc:token", `{}`},
+		{"fixture-gh", "github", "Fixture GitHub", "organization", "mevius", "Mevius", "env:v1:fixture:gh:token"},
+		{"fixture-cf", "cloudflare", "Fixture Cloudflare", "account", "cf-account", "Cloudflare Demo", "env:v1:fixture:cf:token"},
+		{"fixture-vc", "vercel", "Fixture Vercel", "team", "vc-team", "Vercel Demo", "env:v1:fixture:vc:token"},
 	}
 	for _, a := range accounts {
 		_, err := tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO provider_connection (id, provider, label, endpoint, config_json, encrypted_credential, remote_identity_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			a.id, a.provider, a.label, a.endpoint, a.configJSON, a.encryptedCredential, a.remoteIdentityJSON, now)
+			`INSERT OR REPLACE INTO provider_connection (id, provider_id, label, endpoint, scope_type, scope_id, scope_label, config_json, encrypted_credential, remote_identity_json, permissions_json, permissions_checked_at, created_at, updated_at) VALUES (?, ?, ?, '', ?, ?, ?, '{}', ?, '{}', '{}', ?, ?, ?)`,
+			a.id, a.provider, a.label, a.scopeType, a.scopeID, a.scopeLabel, a.encryptedCredential, now, now, now)
 		if err != nil {
 			return fmt.Errorf("insert connection %s: %w", a.id, err)
 		}
@@ -136,43 +142,43 @@ func insertFixtures(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
-	slots := []struct {
-		id, projectID, role, name, configJSON string
+	resources := []struct {
+		id, connectionID, product, kind, externalID, displayName, lifecycle, meta, status string
 	}{
-		{"fixture-slot-repo", "fixture-proj-shop", "source", "shop-repo", `{"repo":"mevius/demo-shop"}`},
-		{"fixture-slot-compute", "fixture-proj-shop", "backend", "shop-worker", `{"runtime":"node18"}`},
-		{"fixture-slot-ss", "fixture-proj-blog", "frontend", "blog-site", `{"build_command":"npm run build"}`},
-		{"fixture-slot-dns", "fixture-proj-blog", "dns", "blog-domain", `{"domain":"blog.example.com"}`},
+		{"fixture-repo", "fixture-gh", "github.repositories", "git_repo", "mevius/demo-shop", "demo-shop", "imported", `{}`, "ok"},
+		{"fixture-page", "fixture-vc", "vercel.projects", "page", "page-demo", "demo-page", "imported", `{}`, "ok"},
+		{"fixture-zone", "fixture-cf", "cloudflare.dns", "dns_zone", "zone-demo", "example.com", "imported", `{}`, "never"},
 	}
-	for _, s := range slots {
+	for _, resource := range resources {
 		_, err := tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO slot (id, project_id, role, name, config_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-			s.id, s.projectID, s.role, s.name, s.configJSON, now)
+			`INSERT OR REPLACE INTO resource_instance (id, connection_id, provider_product_id, resource_kind, external_id, external_url, display_name, lifecycle_mode, spec_json, provider_config_json, cached_meta_json, sync_status, capability_state_json, last_synced_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '', ?, ?, '{}', '{"version":1}', ?, ?, '{}', ?, ?, ?)`,
+			resource.id, resource.connectionID, resource.product, resource.kind, resource.externalID, resource.displayName, resource.lifecycle, resource.meta, resource.status, now, now, now)
 		if err != nil {
-			return fmt.Errorf("insert slot %s: %w", s.id, err)
+			return fmt.Errorf("insert resource %s: %w", resource.id, err)
 		}
 	}
 
-	// Bindings with all 4 sync_status values
-	bindings := []struct {
-		id, slotID, connectionID, product, externalID, cachedMetaJSON, syncStatus string
-		lastSyncedAt                                                                *string
-	}{
-		{"fixture-b-ok", "fixture-slot-repo", "fixture-gh", "github.repositories", "repo-ok-1", `{"name":"demo-shop","private":false}`, "ok", strPtr(now)},
-		{"fixture-b-err", "fixture-slot-repo", "fixture-gh", "github.repositories", "repo-err-1", `{}`, "error", nil},
-		{"fixture-b-auth", "fixture-slot-ss", "fixture-vc", "vercel.projects", "proj-auth-1", `{}`, "auth_error", nil},
-		{"fixture-b-orph", "fixture-slot-dns", "fixture-cf", "cloudflare.dns", "zone-orph-1", `{"zone":"orphaned.example.com"}`, "orphaned", strPtr(now)},
+	links := []struct{ id, projectID, instanceID, alias, purpose string }{
+		{"fixture-pr-repo", "fixture-proj-shop", "fixture-repo", "repo", "source"},
+		{"fixture-pr-blog-repo", "fixture-proj-blog", "fixture-repo", "repo", "source"},
+		{"fixture-pr-page", "fixture-proj-blog", "fixture-page", "site", "production"},
+		{"fixture-pr-zone", "fixture-proj-blog", "fixture-zone", "dns", "public dns"},
 	}
-	for _, b := range bindings {
-		_, err := tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO binding (id, slot_id, connection_id, product, external_id, cached_meta_json, sync_status, last_synced_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			b.id, b.slotID, b.connectionID, b.product, b.externalID, b.cachedMetaJSON, b.syncStatus, b.lastSyncedAt, now)
+	for _, link := range links {
+		_, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO project_resource (id, project_id, resource_instance_id, alias, purpose, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, link.id, link.projectID, link.instanceID, link.alias, link.purpose, now, now)
 		if err != nil {
-			return fmt.Errorf("insert binding %s: %w", b.id, err)
+			return fmt.Errorf("insert project resource %s: %w", link.id, err)
+		}
+	}
+	relations := []struct{ id, from, to, relationType, origin string }{
+		{"fixture-rel-source", "fixture-page", "fixture-repo", "source_repo", "system"},
+	}
+	for _, relation := range relations {
+		_, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO resource_relation (id, from_resource_instance_id, to_resource_instance_id, relation_type, origin, config_json, created_at) VALUES (?, ?, ?, ?, ?, '{}', ?)`, relation.id, relation.from, relation.to, relation.relationType, relation.origin, now)
+		if err != nil {
+			return fmt.Errorf("insert relation %s: %w", relation.id, err)
 		}
 	}
 
 	return tx.Commit()
 }
-
-func strPtr(s string) *string { return &s }

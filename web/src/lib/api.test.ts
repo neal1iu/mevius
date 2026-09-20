@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { apiFetch, ApiError, setUnauthorizedHandler, getToken, setToken, clearToken } from "./api"
+import { apiFetch, ApiError, setUnauthorizedHandler, getToken, setToken } from "./api"
 
 beforeEach(() => {
   vi.restoreAllMocks()

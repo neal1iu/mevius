@@ -6,6 +6,21 @@ import (
 	"time"
 )
 
+func TestRegistryResolvesExactProduct(t *testing.T) {
+	registry := NewRegistry()
+	registry.Register(NewStubProvider("cloudflare"))
+	_, pages, err := registry.Resolve("cloudflare.pages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pages.Descriptor().ID != "cloudflare.pages" {
+		t.Fatalf("resolved %s", pages.Descriptor().ID)
+	}
+	if _, _, err = registry.Resolve("cloudflare.unknown"); err == nil {
+		t.Fatal("expected unknown product error")
+	}
+}
+
 func TestMapHTTP(t *testing.T) {
 	tests := []struct {
 		name       string

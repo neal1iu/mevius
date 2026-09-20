@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 
 	"mevius/internal/crypto"
 	"mevius/internal/domain"
@@ -28,6 +29,10 @@ func (s *credentialStore) Resolve(ctx context.Context, ref string) ([]byte, erro
 	decrypted, err := crypto.Decrypt(s.key, enc)
 	if err != nil {
 		return nil, err
+	}
+	var oauth domain.OAuthCredential
+	if json.Unmarshal([]byte(decrypted), &oauth) == nil && oauth.AccessToken != "" {
+		return []byte(oauth.AccessToken), nil
 	}
 	return []byte(decrypted), nil
 }

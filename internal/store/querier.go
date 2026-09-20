@@ -9,34 +9,58 @@ import (
 )
 
 type Querier interface {
-	DeleteBinding(ctx context.Context, id string) error
+	AuthorizeOAuthSession(ctx context.Context, arg AuthorizeOAuthSessionParams) (int64, error)
+	ConsumeOAuthSession(ctx context.Context, arg ConsumeOAuthSessionParams) (int64, error)
+	CountProjectResourcesByInstance(ctx context.Context, resourceInstanceID string) (int64, error)
+	CountRelationsTo(ctx context.Context, toResourceInstanceID string) (int64, error)
+	CountResourceInstancesByConnection(ctx context.Context, connectionID string) (int64, error)
+	DeleteExpiredOAuthSessions(ctx context.Context, expiresAt string) error
+	DeleteExpiredOperationRequests(ctx context.Context, expiresAt *string) error
+	DeleteOAuthClientConfiguration(ctx context.Context, providerID string) (int64, error)
 	DeleteProject(ctx context.Context, id string) error
-	DeleteProviderConnection(ctx context.Context, id string) error
-	DeleteSlot(ctx context.Context, id string) error
-	FanOutBindingsByAccountExternal(ctx context.Context, arg FanOutBindingsByAccountExternalParams) ([]Binding, error)
-	GetBinding(ctx context.Context, id string) (Binding, error)
+	DeleteProjectResource(ctx context.Context, arg DeleteProjectResourceParams) (int64, error)
+	DeleteProviderConnection(ctx context.Context, id string) (int64, error)
+	DeleteResourceInstance(ctx context.Context, id string) (int64, error)
+	DeleteResourceRelation(ctx context.Context, id string) (int64, error)
+	FailOAuthSession(ctx context.Context, arg FailOAuthSessionParams) (int64, error)
+	GetOAuthAuthorizationSession(ctx context.Context, id string) (OauthAuthorizationSession, error)
+	GetOAuthAuthorizationSessionByState(ctx context.Context, state string) (OauthAuthorizationSession, error)
+	GetOAuthClientConfiguration(ctx context.Context, providerID string) (OauthClientConfiguration, error)
+	GetOperationRequest(ctx context.Context, id string) (OperationRequest, error)
+	GetOperationRequestByKey(ctx context.Context, idempotencyKey string) (OperationRequest, error)
 	GetProject(ctx context.Context, id string) (Project, error)
 	GetProjectByName(ctx context.Context, name string) (Project, error)
+	GetProjectResource(ctx context.Context, id string) (ProjectResource, error)
 	GetProviderConnection(ctx context.Context, id string) (ProviderConnection, error)
 	GetProviderConnectionCredential(ctx context.Context, id string) (string, error)
-	GetSlot(ctx context.Context, id string) (Slot, error)
-	InsertBinding(ctx context.Context, arg InsertBindingParams) error
+	GetResourceInstance(ctx context.Context, id string) (ResourceInstance, error)
+	GetResourceInstanceByRemote(ctx context.Context, arg GetResourceInstanceByRemoteParams) (ResourceInstance, error)
+	GetResourceRelation(ctx context.Context, id string) (ResourceRelation, error)
+	GetSourceRelation(ctx context.Context, fromResourceInstanceID string) (ResourceRelation, error)
+	InsertOAuthAuthorizationSession(ctx context.Context, arg InsertOAuthAuthorizationSessionParams) error
+	InsertOperationRequest(ctx context.Context, arg InsertOperationRequestParams) error
 	InsertProject(ctx context.Context, arg InsertProjectParams) error
+	InsertProjectResource(ctx context.Context, arg InsertProjectResourceParams) error
 	InsertProviderConnection(ctx context.Context, arg InsertProviderConnectionParams) error
-	InsertSlot(ctx context.Context, arg InsertSlotParams) error
-	// binding queries
-	ListBindingsBySlot(ctx context.Context, slotID string) ([]Binding, error)
-	ListBindingsBySlots(ctx context.Context, slotIDs []string) ([]Binding, error)
+	InsertResourceInstance(ctx context.Context, arg InsertResourceInstanceParams) error
+	InsertResourceRelation(ctx context.Context, arg InsertResourceRelationParams) error
+	ListOAuthClientConfigurations(ctx context.Context) ([]OauthClientConfiguration, error)
+	ListProjectResources(ctx context.Context, projectID string) ([]ProjectResource, error)
 	// project queries
 	ListProjects(ctx context.Context) ([]Project, error)
-	// provider_connection queries
 	ListProviderConnections(ctx context.Context) ([]ProviderConnection, error)
-	// slot queries
-	ListSlotsByProject(ctx context.Context, projectID string) ([]Slot, error)
-	UpdateBindingSyncStatus(ctx context.Context, arg UpdateBindingSyncStatusParams) error
+	ListRelationsFrom(ctx context.Context, fromResourceInstanceID string) ([]ResourceRelation, error)
+	ListRelationsTo(ctx context.Context, toResourceInstanceID string) ([]ResourceRelation, error)
+	ListResourceInstances(ctx context.Context) ([]ResourceInstance, error)
+	ListResourceInstancesByConnection(ctx context.Context, connectionID string) ([]ResourceInstance, error)
+	ListResourceRelations(ctx context.Context) ([]ResourceRelation, error)
+	UpdateOperationRequest(ctx context.Context, arg UpdateOperationRequestParams) error
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) error
-	UpdateSlot(ctx context.Context, arg UpdateSlotParams) error
-	UpdateSlotConfig(ctx context.Context, arg UpdateSlotConfigParams) error
+	UpdateProjectResource(ctx context.Context, arg UpdateProjectResourceParams) error
+	UpdateProviderConnectionCredential(ctx context.Context, arg UpdateProviderConnectionCredentialParams) error
+	UpdateResourceInstanceLifecycle(ctx context.Context, arg UpdateResourceInstanceLifecycleParams) error
+	UpdateResourceInstanceSync(ctx context.Context, arg UpdateResourceInstanceSyncParams) error
+	UpsertOAuthClientConfiguration(ctx context.Context, arg UpsertOAuthClientConfigurationParams) error
 }
 
 var _ Querier = (*Queries)(nil)

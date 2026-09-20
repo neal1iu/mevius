@@ -3,7 +3,8 @@ import { cn } from '@/lib/utils'
 
 const navItems = [
   { to: '/projects', label: 'Projects' },
-  { to: '/accounts', label: 'Accounts' },
+  { to: '/inventory', label: 'Inventory' },
+  { to: '/accounts', label: 'Connections' },
 ]
 
 function Sidebar() {

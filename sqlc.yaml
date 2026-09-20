@@ -11,9 +11,19 @@ sql:
         emit_interface: true
         emit_pointers_for_null_types: true
         overrides:
-          - column: "provider_connection.provider"
+          - column: "provider_connection.provider_id"
             go_type: "string"
-          - column: "slot.role"
+          - column: "resource_instance.resource_kind"
             go_type: "string"
-          - column: "binding.sync_status"
+          - column: "resource_instance.lifecycle_mode"
+            go_type: "string"
+          - column: "resource_instance.sync_status"
+            go_type: "string"
+          - column: "resource_relation.relation_type"
+            go_type: "string"
+          - column: "resource_relation.origin"
+            go_type: "string"
+          - column: "operation_request.operation_type"
+            go_type: "string"
+          - column: "operation_request.status"
             go_type: "string"

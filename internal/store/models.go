@@ -4,16 +4,52 @@
 
 package store
 
-type Binding struct {
-	ID             string
-	SlotID         string
-	ConnectionID   string
-	Product        string
-	ExternalID     string
-	CachedMetaJson string
-	SyncStatus     string
-	LastSyncedAt   *string
-	CreatedAt      string
+type OauthAuthorizationSession struct {
+	ID                    string
+	State                 string
+	ProviderID            string
+	Endpoint              string
+	RedirectUri           string
+	EncryptedCodeVerifier string
+	Status                string
+	EncryptedCredential   string
+	TokenMetaJson         string
+	RemoteIdentityJson    string
+	ScopesJson            string
+	PermissionsJson       string
+	ErrorJson             string
+	CreatedAt             string
+	UpdatedAt             string
+	ExpiresAt             string
+	ConsumedAt            *string
+}
+
+type OauthClientConfiguration struct {
+	ProviderID            string
+	ClientID              string
+	EncryptedClientSecret string
+	AuthorizationUrl      string
+	TokenUrl              string
+	ScopesJson            string
+	Pkce                  int64
+	RedirectBaseUrl       string
+	ProviderConfigJson    string
+	CreatedAt             string
+	UpdatedAt             string
+}
+
+type OperationRequest struct {
+	ID                 string
+	IdempotencyKey     string
+	OperationType      string
+	RequestHash        string
+	Status             string
+	ResourceInstanceID *string
+	ResponseJson       string
+	ErrorJson          string
+	CreatedAt          string
+	UpdatedAt          string
+	ExpiresAt          *string
 }
 
 type Project struct {
@@ -24,22 +60,64 @@ type Project struct {
 	UpdatedAt   string
 }
 
-type ProviderConnection struct {
-	ID                  string
-	Provider            string
-	Label               string
-	Endpoint            string
-	ConfigJson          string
-	EncryptedCredential string
-	RemoteIdentityJson  string
-	CreatedAt           string
+type ProjectResource struct {
+	ID                 string
+	ProjectID          string
+	ResourceInstanceID string
+	Alias              string
+	Purpose            string
+	CreatedAt          string
+	UpdatedAt          string
 }
 
-type Slot struct {
-	ID         string
-	ProjectID  string
-	Role       string
-	Name       string
-	ConfigJson string
-	CreatedAt  string
+type ProviderConnection struct {
+	ID                   string
+	ProviderID           string
+	Label                string
+	Endpoint             string
+	ScopeType            string
+	ScopeID              string
+	ScopeLabel           string
+	ConfigJson           string
+	EncryptedCredential  string
+	RemoteIdentityJson   string
+	PermissionsJson      string
+	PermissionsCheckedAt *string
+	CreatedAt            string
+	UpdatedAt            string
+	AuthMethod           string
+}
+
+type ResourceInstance struct {
+	ID                  string
+	ConnectionID        string
+	ProviderProductID   string
+	ResourceKind        string
+	ExternalID          string
+	ExternalUrl         string
+	DisplayName         string
+	LifecycleMode       string
+	SpecJson            string
+	ProviderConfigJson  string
+	CachedMetaJson      string
+	SyncStatus          string
+	CapabilityStateJson string
+	LastSyncedAt        *string
+	CreatedAt           string
+	UpdatedAt           string
+}
+
+type ResourceRelation struct {
+	ID                     string
+	FromResourceInstanceID string
+	ToResourceInstanceID   string
+	RelationType           string
+	Origin                 string
+	ConfigJson             string
+	CreatedAt              string
+}
+
+type SchemaMetum struct {
+	Key   string
+	Value string
 }

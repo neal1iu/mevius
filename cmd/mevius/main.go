@@ -14,8 +14,8 @@ import (
 	"mevius/internal/api"
 	"mevius/internal/config"
 	"mevius/internal/provider"
-	ghprov "mevius/internal/provider/github"
 	cfprov "mevius/internal/provider/cloudflare"
+	ghprov "mevius/internal/provider/github"
 	vcprov "mevius/internal/provider/vercel"
 	"mevius/internal/service"
 	"mevius/internal/store"
@@ -58,7 +58,7 @@ func run() error {
 
 	q := store.New(db)
 
-reg := provider.NewRegistry()
+	reg := provider.NewRegistry()
 	reg.Register(ghprov.NewProvider())
 	reg.Register(cfprov.NewProvider())
 	reg.Register(vcprov.NewProvider())
@@ -66,15 +66,15 @@ reg := provider.NewRegistry()
 	credStore := provider.NewCredentialStore(masterKey, q)
 
 	connSvc := service.NewConnectionService(q, masterKey, reg)
+	oauthSvc := service.NewOAuthService(q, masterKey, reg, connSvc, cfg.PublicURL, cfg.OAuthClients)
 	projectSvc := service.NewProjectService(q)
-	slotSvc := service.NewSlotService(q)
-	refreshEng := service.NewRefreshEngine(q, reg, credStore)
-	bindingSvc := service.NewBindingService(q, reg, credStore, refreshEng)
-	deploySvc := service.NewDeployService(q, reg, credStore, refreshEng)
+	resourceSvc := service.NewResourceService(q, reg, credStore)
+	linkSvc := service.NewLinkService(q)
+	runtimeSvc := service.NewRuntimeService(resourceSvc)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.NewRouter(cfg.APIToken, logger, connSvc, projectSvc, slotSvc, bindingSvc, deploySvc, q, reg, refreshEng, credStore),
+		Handler:           api.NewRouter(cfg.APIToken, logger, connSvc, projectSvc, resourceSvc, linkSvc, runtimeSvc, oauthSvc, reg),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
