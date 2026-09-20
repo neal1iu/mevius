@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"mevius/internal/domain"
 	"mevius/internal/provider"
@@ -229,15 +230,26 @@ type deployment struct {
 	UID     string         `json:"uid"`
 	URL     string         `json:"url"`
 	State   string         `json:"state"`
+	Target  string         `json:"target"`
 	Created int64          `json:"created"`
 	Ready   int64          `json:"ready"`
 	Meta    map[string]any `json:"meta"`
 }
 
-func execution(v deployment) domain.Execution {
-	return domain.Execution{ID: v.UID, Status: status(v.State), ProviderStatus: v.State, ExternalURL: "https://" + v.URL}
+func deploymentFromProvider(v deployment) domain.Deployment {
+	result := domain.Deployment{ID: v.UID, Status: deploymentStatus(v.State), ProviderStatus: v.State, Environment: v.Target, ExternalURL: "https://" + v.URL}
+	if sha, ok := v.Meta["githubCommitSha"].(string); ok {
+		result.Revision = sha
+	}
+	if v.Created > 0 {
+		result.CreatedAt = time.UnixMilli(v.Created).UTC().Format(time.RFC3339)
+	}
+	if v.Ready > 0 {
+		result.FinishedAt = time.UnixMilli(v.Ready).UTC().Format(time.RFC3339)
+	}
+	return result
 }
-func (d *projectDriver) ListDeployments(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) ([]domain.Execution, error) {
+func (d *projectDriver) ListDeployments(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) ([]domain.Deployment, error) {
 	raw, err := d.p.request(ctx, http.MethodGet, conn.Endpoint, credential, scopedPath("/v6/deployments?projectId="+url.QueryEscape(instance.ExternalID), conn), nil)
 	if err != nil {
 		return nil, err
@@ -248,13 +260,13 @@ func (d *projectDriver) ListDeployments(ctx context.Context, conn *domain.Provid
 	if err = json.Unmarshal(raw, &resp); err != nil {
 		return nil, err
 	}
-	result := make([]domain.Execution, 0, len(resp.Deployments))
+	result := make([]domain.Deployment, 0, len(resp.Deployments))
 	for _, v := range resp.Deployments {
-		result = append(result, execution(v))
+		result = append(result, deploymentFromProvider(v))
 	}
 	return result, nil
 }
-func (d *projectDriver) TriggerDeployment(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) (*domain.Execution, error) {
+func (d *projectDriver) TriggerDeployment(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) (*domain.Deployment, error) {
 	var config struct {
 		SourceRepo       string `json:"source_repo"`
 		ProductionBranch string `json:"production_branch"`
@@ -276,11 +288,11 @@ func (d *projectDriver) TriggerDeployment(ctx context.Context, conn *domain.Prov
 	if err = json.Unmarshal(raw, &v); err != nil {
 		return nil, err
 	}
-	result := execution(v)
+	result := deploymentFromProvider(v)
 	return &result, nil
 }
-func (d *projectDriver) GetLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, _ *domain.ResourceInstance, executionID string, tail int) (domain.LogChunk, error) {
-	path := "/v3/deployments/" + url.PathEscape(executionID) + "/events"
+func (d *projectDriver) GetDeploymentLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, _ *domain.ResourceInstance, deploymentID string, tail int) (domain.LogChunk, error) {
+	path := "/v3/deployments/" + url.PathEscape(deploymentID) + "/events"
 	if tail > 0 {
 		path += "?limit=" + fmt.Sprint(tail)
 	}
@@ -386,19 +398,19 @@ func (d *dnsDriver) DeleteRecord(ctx context.Context, conn *domain.ProviderConne
 	_, err := d.p.request(ctx, http.MethodDelete, conn.Endpoint, credential, scopedPath("/v2/domains/"+url.PathEscape(instance.ExternalID)+"/records/"+url.PathEscape(id), conn), nil)
 	return err
 }
-func status(v string) domain.ExecutionStatus {
+func deploymentStatus(v string) domain.DeploymentStatus {
 	switch strings.ToUpper(v) {
 	case "QUEUED", "INITIALIZING":
-		return domain.ExecutionQueued
+		return domain.DeploymentQueued
 	case "BUILDING", "RUNNING":
-		return domain.ExecutionRunning
+		return domain.DeploymentRunning
 	case "READY":
-		return domain.ExecutionSucceeded
+		return domain.DeploymentSucceeded
 	case "ERROR":
-		return domain.ExecutionFailed
+		return domain.DeploymentFailed
 	case "CANCELED", "CANCELLED":
-		return domain.ExecutionCancelled
+		return domain.DeploymentCancelled
 	default:
-		return domain.ExecutionUnknown
+		return domain.DeploymentUnknown
 	}
 }

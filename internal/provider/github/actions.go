@@ -165,7 +165,7 @@ func (d *actionsDriver) RerunPipeline(ctx context.Context, conn *domain.Provider
 	return &domain.Execution{ID: runID, Status: domain.ExecutionQueued, ProviderStatus: "rerun_requested", CreatedAt: time.Now().UTC().Format(time.RFC3339)}, nil
 }
 
-func (d *actionsDriver) GetLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance, executionID string, tail int) (domain.LogChunk, error) {
+func (d *actionsDriver) GetPipelineLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance, executionID string, tail int) (domain.LogChunk, error) {
 	cfg, err := pipelineConfigFor(instance)
 	if err != nil {
 		return domain.LogChunk{}, err

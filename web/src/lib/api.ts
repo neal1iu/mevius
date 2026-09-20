@@ -14,9 +14,11 @@ export async function apiFetch<T>(path:string,init?:RequestInit):Promise<T>{cons
 export type CapabilityAvailability='available'|'unavailable'|'unknown'
 export interface CapabilityState{availability:CapabilityAvailability;reason?:string}
 export interface FieldSchema{name:string;label:string;type:string;required?:boolean;description?:string}
-export interface ProductDescriptor{id:string;provider_id:string;display_name:string;resource_kind:string;capabilities:string[];fields?:FieldSchema[]}
+export type ResourceRole='source'|'frontend'|'backend'|'automation'|'database'|'infrastructure'|'observability'
+export interface ResourceRoleDescriptor{id:ResourceRole;display_name:string;description:string}
+export interface ProductDescriptor{id:string;provider_id:string;display_name:string;resource_kind:string;compatible_roles:ResourceRole[];capabilities:string[];fields?:FieldSchema[]}
 export interface ProviderDescriptor{id:string;display_name:string;products:ProductDescriptor[]}
-export interface Catalog{providers:ProviderDescriptor[]}
+export interface Catalog{providers:ProviderDescriptor[];resource_roles:ResourceRoleDescriptor[]}
 export interface ProviderScope{type:string;id:string;label:string;meta?:Record<string,unknown>}
 export interface ProbeResult{identity:Record<string,unknown>;scopes:ProviderScope[];permissions:Record<string,CapabilityState>}
 export interface Connection{id:string;provider_id:string;label:string;endpoint?:string;scope:ProviderScope;auth_method:'token'|'oauth';remote_identity?:Record<string,unknown>;permissions?:Record<string,CapabilityState>;created_at:string;updated_at:string}
@@ -24,12 +26,15 @@ export interface OAuthProviderInfo{provider_id:string;available:boolean;configur
 export interface OAuthAuthorizationSession{id:string;provider_id:string;endpoint?:string;status:'pending'|'authorized'|'consumed'|'failed';identity?:Record<string,unknown>;scopes?:ProviderScope[];permissions?:Record<string,CapabilityState>;error?:string;expires_at:string}
 export interface ResourceInstance{id:string;connection_id:string;provider_product_id:string;resource_kind:string;external_id:string;external_url?:string;display_name:string;lifecycle_mode:'managed'|'imported';spec?:unknown;provider_config?:unknown;cached_meta?:Record<string,unknown>;sync_status:string;capabilities?:Record<string,CapabilityState>;last_synced_at?:string;created_at:string;updated_at:string}
 export interface Project{id:string;name:string;description?:string;created_at:string;updated_at:string}
-export interface ProjectResource{id:string;project_id:string;resource_instance_id:string;alias:string;purpose?:string;created_at:string;updated_at:string}
+export interface ProjectResource{id:string;project_id:string;resource_instance_id:string;alias:string;role:ResourceRole;purpose?:string;created_at:string;updated_at:string}
 export interface ProjectResourceDetail{project_resource:ProjectResource;resource_instance:ResourceInstance}
-export interface ResourceRelation{id:string;from_resource_instance_id:string;to_resource_instance_id:string;relation_type:'source_repo'|'deploys_to';origin:'system'|'user';config?:unknown;created_at:string}
+export interface ResourceRelation{id:string;from_resource_instance_id:string;to_resource_instance_id:string;relation_type:'source_repo';origin:'system'|'user';config?:unknown;created_at:string}
 export interface ProjectDetail{project:Project;resources:ProjectResourceDetail[]|null;relations:ResourceRelation[]|null}
 export interface ExternalResource{external_id:string;external_url?:string;display_name:string;provider_config?:unknown;meta?:Record<string,unknown>;capabilities?:Record<string,CapabilityState>}
-export interface Execution{id:string;status:string;provider_status?:string;ref?:string;commit_sha?:string;external_url?:string;created_at?:string;started_at?:string;finished_at?:string}
+export type RuntimeStatus='queued'|'running'|'succeeded'|'failed'|'cancelled'|'unknown'
+export interface Execution{id:string;resource_instance_id:string;status:RuntimeStatus;provider_status?:string;ref?:string;commit_sha?:string;external_url?:string;created_at?:string;started_at?:string;finished_at?:string}
+export interface ExecutionRef{resource_instance_id:string;execution_id:string}
+export interface Deployment{id:string;resource_instance_id:string;status:RuntimeStatus;provider_status?:string;environment?:string;revision?:string;artifact?:string;external_url?:string;triggered_by?:ExecutionRef;created_at?:string;started_at?:string;finished_at?:string}
 export interface DNSRecord{id?:string;type:string;name:string;content:string;ttl?:number;proxied?:boolean;priority?:number}
 
 export const idempotencyKey=()=>crypto.randomUUID()

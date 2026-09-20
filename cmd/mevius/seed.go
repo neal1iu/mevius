@@ -158,14 +158,14 @@ func insertFixtures(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
-	links := []struct{ id, projectID, instanceID, alias, purpose string }{
-		{"fixture-pr-repo", "fixture-proj-shop", "fixture-repo", "repo", "source"},
-		{"fixture-pr-blog-repo", "fixture-proj-blog", "fixture-repo", "repo", "source"},
-		{"fixture-pr-page", "fixture-proj-blog", "fixture-page", "site", "production"},
-		{"fixture-pr-zone", "fixture-proj-blog", "fixture-zone", "dns", "public dns"},
+	links := []struct{ id, projectID, instanceID, alias, role, purpose string }{
+		{"fixture-pr-repo", "fixture-proj-shop", "fixture-repo", "repo", "source", "source"},
+		{"fixture-pr-blog-repo", "fixture-proj-blog", "fixture-repo", "repo", "source", "source"},
+		{"fixture-pr-page", "fixture-proj-blog", "fixture-page", "site", "frontend", "production"},
+		{"fixture-pr-zone", "fixture-proj-blog", "fixture-zone", "dns", "infrastructure", "public dns"},
 	}
 	for _, link := range links {
-		_, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO project_resource (id, project_id, resource_instance_id, alias, purpose, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, link.id, link.projectID, link.instanceID, link.alias, link.purpose, now, now)
+		_, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO project_resource (id, project_id, resource_instance_id, alias, role, purpose, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, link.id, link.projectID, link.instanceID, link.alias, link.role, link.purpose, now, now)
 		if err != nil {
 			return fmt.Errorf("insert project resource %s: %w", link.id, err)
 		}

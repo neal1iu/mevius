@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -35,7 +36,7 @@ func (p *testProvider) ValidateScope(ctx context.Context, endpoint string, crede
 	return result, nil
 }
 func (p *testProduct) Descriptor() domain.ProductDescriptor {
-	return domain.ProductDescriptor{ID: "test.repositories", ProviderID: "test", ResourceKind: domain.ResourceKindGitRepo, Capabilities: []domain.Capability{domain.CapCreate, domain.CapInspect, domain.CapDelete}}
+	return domain.ProductDescriptor{ID: "test.repositories", ProviderID: "test", ResourceKind: domain.ResourceKindGitRepo, CompatibleRoles: []domain.ResourceRole{domain.ResourceRoleSource, domain.ResourceRoleAutomation}, Capabilities: []domain.Capability{domain.CapCreate, domain.CapInspect, domain.CapDelete}}
 }
 func (p *testProduct) Create(_ context.Context, _ *domain.ProviderConnection, _ []byte, req domain.CreateResourceRequest) (*domain.ExternalResource, error) {
 	p.creates++
@@ -72,7 +73,7 @@ func setupServices(t *testing.T) (*store.Queries, *ResourceService, *LinkService
 	reg := provider.NewRegistry()
 	reg.Register(&testProvider{product: product})
 	resources := NewResourceService(q, reg, testCredentials{})
-	return q, resources, NewLinkService(q), product
+	return q, resources, NewLinkService(q, reg), product
 }
 
 func TestManagedCreateIsIdempotent(t *testing.T) {
@@ -109,7 +110,7 @@ func TestProjectCanShareInstanceAndPipelineRequiresRepo(t *testing.T) {
 		if err = q.InsertProject(ctx, store.InsertProjectParams{ID: name, Name: name, CreatedAt: now, UpdatedAt: now}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err = links.Attach(ctx, name, repo.ID, "repo", ""); err != nil {
+		if _, err = links.Attach(ctx, name, repo.ID, "repo", domain.ResourceRoleSource, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -123,11 +124,25 @@ func TestProjectCanShareInstanceAndPipelineRequiresRepo(t *testing.T) {
 	if err = q.InsertProject(ctx, store.InsertProjectParams{ID: "empty", Name: "empty", CreatedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = links.Attach(ctx, "empty", "pipeline", "ci", ""); err == nil {
+	if _, err = links.Attach(ctx, "empty", "pipeline", "ci", domain.ResourceRoleAutomation, ""); err == nil {
 		t.Fatal("expected source repo prerequisite conflict")
 	}
-	if _, err = links.Attach(ctx, "one", "pipeline", "ci", ""); err != nil {
+	if _, err = links.Attach(ctx, "one", "pipeline", "ci", domain.ResourceRoleAutomation, ""); err != nil {
 		t.Fatal(err)
+	}
+	if _, err = links.Attach(ctx, "one", repo.ID, "bad-role", domain.ResourceRoleFrontend, ""); !errors.Is(err, ErrUnprocessable) {
+		t.Fatalf("got %v, want incompatible role", err)
+	}
+	projectLinks, err := links.ListProjectResources(ctx, "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, link := range projectLinks {
+		if link.ResourceInstanceID == repo.ID {
+			if err = links.Detach(ctx, "one", link.ID); !errors.Is(err, ErrConflict) {
+				t.Fatalf("got %v, want dependent source conflict", err)
+			}
+		}
 	}
 }
 

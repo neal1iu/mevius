@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"mevius/internal/domain"
 )
 
 func TestRegistryResolvesExactProduct(t *testing.T) {
@@ -18,6 +20,29 @@ func TestRegistryResolvesExactProduct(t *testing.T) {
 	}
 	if _, _, err = registry.Resolve("cloudflare.unknown"); err == nil {
 		t.Fatal("expected unknown product error")
+	}
+}
+
+func TestRegistryRejectsInvalidCompatibleRoles(t *testing.T) {
+	tests := []struct {
+		name  string
+		roles []domain.ResourceRole
+	}{
+		{name: "empty"},
+		{name: "unknown", roles: []domain.ResourceRole{"mystery"}},
+		{name: "duplicate", roles: []domain.ResourceRole{domain.ResourceRoleSource, domain.ResourceRoleSource}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			descriptor := domain.ProductDescriptor{ID: "test.product", ProviderID: "test", ResourceKind: "custom", CompatibleRoles: tt.roles}
+			p := &stubProvider{id: "test", descriptor: domain.ProviderDescriptor{ID: "test", Products: []domain.ProductDescriptor{descriptor}}, products: []ProductDriver{&stubProduct{descriptor: descriptor}}}
+			defer func() {
+				if recover() == nil {
+					t.Fatal("expected registration panic")
+				}
+			}()
+			NewRegistry().Register(p)
+		})
 	}
 }
 

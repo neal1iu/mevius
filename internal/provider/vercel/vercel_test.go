@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"mevius/internal/domain"
 )
 
 func TestProbeReturnsPersonalAndTeamScopes(t *testing.T) {
@@ -26,5 +28,12 @@ func TestProbeReturnsPersonalAndTeamScopes(t *testing.T) {
 	}
 	if len(result.Scopes) != 2 || result.Scopes[0].Type != "personal" || result.Scopes[1].Type != "team" {
 		t.Fatalf("unexpected scopes: %#v", result.Scopes)
+	}
+}
+
+func TestDeploymentNormalization(t *testing.T) {
+	got := deploymentFromProvider(deployment{UID: "dep", State: "READY", Target: "production", URL: "example.vercel.app", Created: 1_700_000_000_000, Meta: map[string]any{"githubCommitSha": "abc123"}})
+	if got.Status != domain.DeploymentSucceeded || got.Environment != "production" || got.Revision != "abc123" || got.CreatedAt == "" {
+		t.Fatalf("unexpected deployment: %#v", got)
 	}
 }

@@ -41,6 +41,42 @@ type ProviderID string
 type ProductID string
 type Capability string
 type AuthMethod string
+type ResourceRole string
+
+const (
+	ResourceRoleSource         ResourceRole = "source"
+	ResourceRoleFrontend       ResourceRole = "frontend"
+	ResourceRoleBackend        ResourceRole = "backend"
+	ResourceRoleAutomation     ResourceRole = "automation"
+	ResourceRoleDatabase       ResourceRole = "database"
+	ResourceRoleInfrastructure ResourceRole = "infrastructure"
+	ResourceRoleObservability  ResourceRole = "observability"
+)
+
+type ResourceRoleDescriptor struct {
+	ID          ResourceRole `json:"id"`
+	DisplayName string       `json:"display_name"`
+	Description string       `json:"description"`
+}
+
+var ResourceRoles = []ResourceRoleDescriptor{
+	{ID: ResourceRoleSource, DisplayName: "Source", Description: "Source code and repositories"},
+	{ID: ResourceRoleFrontend, DisplayName: "Frontend", Description: "User-facing web applications"},
+	{ID: ResourceRoleBackend, DisplayName: "Backend", Description: "APIs and backend services"},
+	{ID: ResourceRoleAutomation, DisplayName: "Automation", Description: "Build, test, and delivery automation"},
+	{ID: ResourceRoleDatabase, DisplayName: "Database", Description: "Persistent application data stores"},
+	{ID: ResourceRoleInfrastructure, DisplayName: "Infrastructure", Description: "Networking and runtime infrastructure"},
+	{ID: ResourceRoleObservability, DisplayName: "Observability", Description: "Monitoring, tracing, and error reporting"},
+}
+
+func IsResourceRole(value ResourceRole) bool {
+	for _, role := range ResourceRoles {
+		if role.ID == value {
+			return true
+		}
+	}
+	return false
+}
 
 const (
 	AuthMethodToken AuthMethod = "token"
@@ -81,12 +117,13 @@ type ProviderDescriptor struct {
 }
 
 type ProductDescriptor struct {
-	ID           ProductID     `json:"id"`
-	ProviderID   ProviderID    `json:"provider_id"`
-	DisplayName  string        `json:"display_name"`
-	ResourceKind ResourceKind  `json:"resource_kind"`
-	Capabilities []Capability  `json:"capabilities"`
-	Fields       []FieldSchema `json:"fields,omitempty"`
+	ID              ProductID      `json:"id"`
+	ProviderID      ProviderID     `json:"provider_id"`
+	DisplayName     string         `json:"display_name"`
+	ResourceKind    ResourceKind   `json:"resource_kind"`
+	CompatibleRoles []ResourceRole `json:"compatible_roles"`
+	Capabilities    []Capability   `json:"capabilities"`
+	Fields          []FieldSchema  `json:"fields,omitempty"`
 }
 
 type FieldSchema struct {
@@ -189,13 +226,14 @@ type ResourceInstance struct {
 }
 
 type ProjectResource struct {
-	ID                 string `json:"id"`
-	ProjectID          string `json:"project_id"`
-	ResourceInstanceID string `json:"resource_instance_id"`
-	Alias              string `json:"alias"`
-	Purpose            string `json:"purpose,omitempty"`
-	CreatedAt          string `json:"created_at"`
-	UpdatedAt          string `json:"updated_at"`
+	ID                 string       `json:"id"`
+	ProjectID          string       `json:"project_id"`
+	ResourceInstanceID string       `json:"resource_instance_id"`
+	Alias              string       `json:"alias"`
+	Role               ResourceRole `json:"role"`
+	Purpose            string       `json:"purpose,omitempty"`
+	CreatedAt          string       `json:"created_at"`
+	UpdatedAt          string       `json:"updated_at"`
 }
 
 type RelationType string
@@ -203,7 +241,6 @@ type RelationOrigin string
 
 const (
 	RelationSourceRepo RelationType   = "source_repo"
-	RelationDeploysTo  RelationType   = "deploys_to"
 	RelationSystem     RelationOrigin = "system"
 	RelationUser       RelationOrigin = "user"
 )
@@ -283,15 +320,47 @@ const (
 )
 
 type Execution struct {
-	ID             string          `json:"id"`
-	Status         ExecutionStatus `json:"status"`
-	ProviderStatus string          `json:"provider_status,omitempty"`
-	Ref            string          `json:"ref,omitempty"`
-	CommitSHA      string          `json:"commit_sha,omitempty"`
-	ExternalURL    string          `json:"external_url,omitempty"`
-	CreatedAt      string          `json:"created_at,omitempty"`
-	StartedAt      string          `json:"started_at,omitempty"`
-	FinishedAt     string          `json:"finished_at,omitempty"`
+	ID                 string          `json:"id"`
+	ResourceInstanceID string          `json:"resource_instance_id"`
+	Status             ExecutionStatus `json:"status"`
+	ProviderStatus     string          `json:"provider_status,omitempty"`
+	Ref                string          `json:"ref,omitempty"`
+	CommitSHA          string          `json:"commit_sha,omitempty"`
+	ExternalURL        string          `json:"external_url,omitempty"`
+	CreatedAt          string          `json:"created_at,omitempty"`
+	StartedAt          string          `json:"started_at,omitempty"`
+	FinishedAt         string          `json:"finished_at,omitempty"`
+}
+
+type DeploymentStatus string
+
+const (
+	DeploymentQueued    DeploymentStatus = "queued"
+	DeploymentRunning   DeploymentStatus = "running"
+	DeploymentSucceeded DeploymentStatus = "succeeded"
+	DeploymentFailed    DeploymentStatus = "failed"
+	DeploymentCancelled DeploymentStatus = "cancelled"
+	DeploymentUnknown   DeploymentStatus = "unknown"
+)
+
+type ExecutionRef struct {
+	ResourceInstanceID string `json:"resource_instance_id"`
+	ExecutionID        string `json:"execution_id"`
+}
+
+type Deployment struct {
+	ID                 string           `json:"id"`
+	ResourceInstanceID string           `json:"resource_instance_id"`
+	Status             DeploymentStatus `json:"status"`
+	ProviderStatus     string           `json:"provider_status,omitempty"`
+	Environment        string           `json:"environment,omitempty"`
+	Revision           string           `json:"revision,omitempty"`
+	Artifact           string           `json:"artifact,omitempty"`
+	ExternalURL        string           `json:"external_url,omitempty"`
+	TriggeredBy        *ExecutionRef    `json:"triggered_by,omitempty"`
+	CreatedAt          string           `json:"created_at,omitempty"`
+	StartedAt          string           `json:"started_at,omitempty"`
+	FinishedAt         string           `json:"finished_at,omitempty"`
 }
 
 type TriggerPipelineRequest struct {

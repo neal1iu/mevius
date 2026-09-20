@@ -36,9 +36,9 @@ type CreateRecovery interface {
 	RecoverCreate(ctx context.Context, conn *domain.ProviderConnection, credential []byte, req domain.CreateResourceRequest) (*domain.ExternalResource, error)
 }
 
-type Deployable interface {
-	TriggerDeployment(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) (*domain.Execution, error)
-	ListDeployments(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) ([]domain.Execution, error)
+type Deployer interface {
+	TriggerDeployment(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) (*domain.Deployment, error)
+	ListDeployments(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) ([]domain.Deployment, error)
 }
 
 type PipelineRunner interface {
@@ -49,8 +49,12 @@ type PipelineRunner interface {
 	RerunPipeline(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance, runID string) (*domain.Execution, error)
 }
 
-type LogSource interface {
-	GetLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance, executionID string, tail int) (domain.LogChunk, error)
+type PipelineLogSource interface {
+	GetPipelineLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance, executionID string, tail int) (domain.LogChunk, error)
+}
+
+type DeploymentLogSource interface {
+	GetDeploymentLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance, deploymentID string, tail int) (domain.LogChunk, error)
 }
 
 type DNSManager interface {
@@ -74,6 +78,9 @@ func NewRegistry() *Registry {
 
 func (r *Registry) Register(p Provider) {
 	id := p.ID()
+	if descriptorID := p.Descriptor().ID; descriptorID != id {
+		panic(fmt.Sprintf("provider descriptor %s registered as %s", descriptorID, id))
+	}
 	if _, exists := r.providers[id]; exists {
 		panic("provider already registered: " + string(id))
 	}
@@ -85,6 +92,19 @@ func (r *Registry) Register(p Provider) {
 		}
 		if _, exists := r.products[d.ID]; exists {
 			panic("product already registered: " + string(d.ID))
+		}
+		if len(d.CompatibleRoles) == 0 {
+			panic("product has no compatible roles: " + string(d.ID))
+		}
+		roles := make(map[domain.ResourceRole]struct{}, len(d.CompatibleRoles))
+		for _, role := range d.CompatibleRoles {
+			if !domain.IsResourceRole(role) {
+				panic("product has unknown compatible role: " + string(d.ID) + ": " + string(role))
+			}
+			if _, exists := roles[role]; exists {
+				panic("product has duplicate compatible role: " + string(d.ID) + ": " + string(role))
+			}
+			roles[role] = struct{}{}
 		}
 		r.products[d.ID] = product
 	}
@@ -108,7 +128,13 @@ func (r *Registry) Resolve(id domain.ProductID) (Provider, ProductDriver, error)
 func (r *Registry) Descriptors() []domain.ProviderDescriptor {
 	result := make([]domain.ProviderDescriptor, 0, len(r.providers))
 	for _, p := range r.providers {
-		result = append(result, p.Descriptor())
+		descriptor := p.Descriptor()
+		products := p.Products()
+		descriptor.Products = make([]domain.ProductDescriptor, 0, len(products))
+		for _, product := range products {
+			descriptor.Products = append(descriptor.Products, product.Descriptor())
+		}
+		result = append(result, descriptor)
 	}
 	return result
 }

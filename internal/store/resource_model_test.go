@@ -3,11 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/pressly/goose/v3"
 )
 
 func openTest(t *testing.T) (*sql.DB, *Queries) {
@@ -44,7 +43,7 @@ func TestResourceUniquenessAndProjectSharing(t *testing.T) {
 		if err := q.InsertProject(ctx, InsertProjectParams{ID: id, Name: id, CreatedAt: now, UpdatedAt: now}); err != nil {
 			t.Fatal(err)
 		}
-		if err := q.InsertProjectResource(ctx, InsertProjectResourceParams{ID: "pr-" + id, ProjectID: id, ResourceInstanceID: "repo", Alias: "repo", CreatedAt: now, UpdatedAt: now}); err != nil {
+		if err := q.InsertProjectResource(ctx, InsertProjectResourceParams{ID: "pr-" + id, ProjectID: id, ResourceInstanceID: "repo", Alias: "repo", Role: "source", CreatedAt: now, UpdatedAt: now}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -58,6 +57,10 @@ func TestResourceUniquenessAndProjectSharing(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected remote identity uniqueness violation")
 	}
+	insertInstance(t, q, "custom", "external-custom", "future_product_kind", "future.product")
+	if err := q.InsertProjectResource(ctx, InsertProjectResourceParams{ID: "bad-role", ProjectID: "b", ResourceInstanceID: "custom", Alias: "custom", Role: "unknown", CreatedAt: now, UpdatedAt: now}); err == nil {
+		t.Fatal("expected invalid project role to be rejected")
+	}
 }
 
 func TestRelationConstraintsAndRestrict(t *testing.T) {
@@ -69,6 +72,9 @@ func TestRelationConstraintsAndRestrict(t *testing.T) {
 	ctx := context.Background()
 	if err := q.InsertResourceRelation(ctx, InsertResourceRelationParams{ID: "rel", FromResourceInstanceID: "pipe", ToResourceInstanceID: "repo", RelationType: "source_repo", Origin: "system", ConfigJson: "{}", CreatedAt: now}); err != nil {
 		t.Fatal(err)
+	}
+	if err := q.InsertResourceRelation(ctx, InsertResourceRelationParams{ID: "bad", FromResourceInstanceID: "pipe", ToResourceInstanceID: "repo", RelationType: "deploys_to", Origin: "user", ConfigJson: "{}", CreatedAt: now}); err == nil {
+		t.Fatal("expected deploys_to relation to be rejected")
 	}
 	if _, err := q.DeleteResourceInstance(ctx, "repo"); err == nil {
 		t.Fatal("expected referenced target deletion to be restricted")
@@ -96,36 +102,32 @@ func TestOpenRejectsLegacySchema(t *testing.T) {
 	}
 }
 
-func TestOAuthMigrationRoundTripAndTokenDefault(t *testing.T) {
-	db, _ := openTest(t)
-	if err := goose.Down(db, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(db, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := db.Exec(`INSERT INTO provider_connection (
-		id, provider_id, label, endpoint, scope_type, scope_id, scope_label,
-		config_json, encrypted_credential, remote_identity_json, permissions_json,
-		created_at, updated_at
-	) VALUES (?, ?, ?, '', ?, ?, ?, '{}', ?, '{}', '{}', ?, ?)`,
-		"legacy-token", "github", "Legacy token", "organization", "org", "Org", "encrypted", now, now)
-	if err != nil {
-		t.Fatalf("epoch 2 insert: %v", err)
-	}
-	if err = goose.Up(db, "migrations", goose.WithAllowMissing()); err != nil {
-		t.Fatal(err)
-	}
-	row, err := New(db).GetProviderConnection(context.Background(), "legacy-token")
+func TestOpenRejectsUnversionedNonEmptySchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "unversioned.db")
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row.AuthMethod != "token" {
-		t.Fatalf("auth_method=%q, want token", row.AuthMethod)
+	if _, err = db.Exec(`CREATE TABLE historical_project(id TEXT);`); err != nil {
+		t.Fatal(err)
 	}
-	var epoch string
-	if err = db.QueryRow(`SELECT value FROM schema_meta WHERE key = 'schema_epoch'`).Scan(&epoch); err != nil || epoch != "4" {
-		t.Fatalf("epoch=%q err=%v", epoch, err)
+	db.Close()
+	if _, err = Open(path); !errors.Is(err, ErrSchemaResetRequired) {
+		t.Fatalf("got %v, want reset required", err)
+	}
+}
+
+func TestOpenRejectsPreviousResourceSchemaEpoch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "epoch4.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`CREATE TABLE schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO schema_meta VALUES ('schema_epoch', '4');`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if _, err = Open(path); !errors.Is(err, ErrSchemaResetRequired) {
+		t.Fatalf("got %v, want reset required", err)
 	}
 }

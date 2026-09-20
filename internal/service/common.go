@@ -12,6 +12,7 @@ var (
 	ErrConflict            = errors.New("conflict")
 	ErrNotFound            = errors.New("not found")
 	ErrInvalid             = errors.New("invalid request")
+	ErrUnprocessable       = errors.New("unprocessable entity")
 	ErrUnsupported         = errors.New("unsupported operation")
 	ErrOperationInProgress = errors.New("operation in progress")
 )
@@ -36,7 +37,7 @@ func instanceFromStore(v store.ResourceInstance) domain.ResourceInstance {
 	return domain.ResourceInstance{ID: v.ID, ConnectionID: v.ConnectionID, ProviderProductID: domain.ProductID(v.ProviderProductID), ResourceKind: domain.ResourceKind(v.ResourceKind), ExternalID: v.ExternalID, ExternalURL: v.ExternalUrl, DisplayName: v.DisplayName, LifecycleMode: domain.LifecycleMode(v.LifecycleMode), Spec: json.RawMessage(v.SpecJson), ProviderConfig: json.RawMessage(v.ProviderConfigJson), CachedMeta: decode[map[string]any](v.CachedMetaJson), SyncStatus: domain.SyncStatus(v.SyncStatus), Capabilities: decode[map[domain.Capability]domain.CapabilityState](v.CapabilityStateJson), LastSyncedAt: value(v.LastSyncedAt), CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 func projectResourceFromStore(v store.ProjectResource) domain.ProjectResource {
-	return domain.ProjectResource{ID: v.ID, ProjectID: v.ProjectID, ResourceInstanceID: v.ResourceInstanceID, Alias: v.Alias, Purpose: v.Purpose, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	return domain.ProjectResource{ID: v.ID, ProjectID: v.ProjectID, ResourceInstanceID: v.ResourceInstanceID, Alias: v.Alias, Role: domain.ResourceRole(v.Role), Purpose: v.Purpose, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 func relationFromStore(v store.ResourceRelation) domain.ResourceRelation {
 	return domain.ResourceRelation{ID: v.ID, FromResourceInstanceID: v.FromResourceInstanceID, ToResourceInstanceID: v.ToResourceInstanceID, Type: domain.RelationType(v.RelationType), Origin: domain.RelationOrigin(v.Origin), Config: json.RawMessage(v.ConfigJson), CreatedAt: v.CreatedAt}

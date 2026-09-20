@@ -13,8 +13,9 @@ test.describe('resource model smoke', () => {
   test('seeded project shows attached resources and relation subgraph', async ({ page }) => {
     await enter(page)
     await page.getByText('demo-blog').click()
-    await expect(page.getByText('site', { exact: true })).toBeVisible()
-    await expect(page.getByText('repo', { exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'site' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'repo' })).toBeVisible()
+    await expect(page.getByText('Frontend', { exact: true })).toBeVisible()
     await expect(page.getByText(/source_repo/)).toBeVisible()
   })
 
@@ -22,7 +23,7 @@ test.describe('resource model smoke', () => {
     await enter(page)
     await page.getByRole('link', { name: 'Inventory' }).click()
     await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible()
-    await expect(page.getByText('demo-shop')).toBeVisible()
+    await expect(page.getByRole('link', { name: /^demo-shop/ })).toBeVisible()
     await expect(page.getByText('example.com')).toBeVisible()
     await page.getByRole('link', { name: 'Connections' }).click()
     await expect(page.getByText('Fixture GitHub')).toBeVisible()
@@ -37,6 +38,6 @@ test.describe('resource model smoke', () => {
     await page.getByRole('button', { name: 'Create' }).click()
     await expect(page.getByText(name)).toBeVisible()
     await page.getByRole('link', { name: 'Inventory' }).click()
-    await expect(page.getByText('demo-shop')).toBeVisible()
+    await expect(page.getByRole('link', { name: /^demo-shop/ })).toBeVisible()
   })
 })

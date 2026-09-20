@@ -23,6 +23,8 @@ sql:
             go_type: "string"
           - column: "resource_relation.origin"
             go_type: "string"
+          - column: "project_resource.role"
+            go_type: "string"
           - column: "operation_request.operation_type"
             go_type: "string"
           - column: "operation_request.status"

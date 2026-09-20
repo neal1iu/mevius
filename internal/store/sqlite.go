@@ -20,6 +20,7 @@ import (
 var migrationsFS embed.FS
 
 var ErrLegacySchema = errors.New("legacy slot/binding schema detected; back up and remove the database before starting Mevius")
+var ErrSchemaResetRequired = errors.New("schema epoch 5 requires a database reset; back up and remove the existing database before starting Mevius")
 
 // Open opens a SQLite database at the given path with WAL mode, busy timeout,
 // and MaxOpenConns(1). It runs pending goose migrations before returning.
@@ -46,6 +47,28 @@ func Open(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, ErrLegacySchema
 	}
+	if hasEpochTable == 0 {
+		var existingTables int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&existingTables); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("inspect existing sqlite tables: %w", err)
+		}
+		if existingTables > 0 {
+			db.Close()
+			return nil, ErrSchemaResetRequired
+		}
+	}
+	if hasEpochTable > 0 {
+		var existingEpoch string
+		if err := db.QueryRow(`SELECT value FROM schema_meta WHERE key = 'schema_epoch'`).Scan(&existingEpoch); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("inspect existing schema epoch: %w", err)
+		}
+		if existingEpoch != "5" {
+			db.Close()
+			return nil, fmt.Errorf("%w (found epoch %s)", ErrSchemaResetRequired, existingEpoch)
+		}
+	}
 
 	goose.SetBaseFS(migrationsFS)
 	goose.SetLogger(goose.NopLogger())
@@ -59,7 +82,7 @@ func Open(path string) (*sql.DB, error) {
 	}
 
 	var epoch string
-	if err := db.QueryRow(`SELECT value FROM schema_meta WHERE key = 'schema_epoch'`).Scan(&epoch); err != nil || epoch != "4" {
+	if err := db.QueryRow(`SELECT value FROM schema_meta WHERE key = 'schema_epoch'`).Scan(&epoch); err != nil || epoch != "5" {
 		db.Close()
 		if err != nil {
 			return nil, fmt.Errorf("validate schema epoch: %w", err)

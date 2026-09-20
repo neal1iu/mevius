@@ -9,14 +9,20 @@ import (
 
 	"github.com/google/uuid"
 	"mevius/internal/domain"
+	"mevius/internal/provider"
 	"mevius/internal/store"
 )
 
-type LinkService struct{ q *store.Queries }
+type LinkService struct {
+	q        *store.Queries
+	registry *provider.Registry
+}
 
-func NewLinkService(q *store.Queries) *LinkService { return &LinkService{q: q} }
+func NewLinkService(q *store.Queries, registry *provider.Registry) *LinkService {
+	return &LinkService{q: q, registry: registry}
+}
 
-func (s *LinkService) Attach(ctx context.Context, projectID, instanceID, alias, purpose string) (domain.ProjectResource, error) {
+func (s *LinkService) Attach(ctx context.Context, projectID, instanceID, alias string, role domain.ResourceRole, purpose string) (domain.ProjectResource, error) {
 	if alias == "" {
 		return domain.ProjectResource{}, fmt.Errorf("%w: alias is required", ErrInvalid)
 	}
@@ -29,6 +35,9 @@ func (s *LinkService) Attach(ctx context.Context, projectID, instanceID, alias, 
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.ProjectResource{}, ErrNotFound
 	} else if err != nil {
+		return domain.ProjectResource{}, err
+	}
+	if err := s.validateRole(domain.ProductID(instance.ProviderProductID), role); err != nil {
 		return domain.ProjectResource{}, err
 	}
 	if instance.ResourceKind == string(domain.ResourceKindCIPipeline) || instance.ResourceKind == string(domain.ResourceKindPage) {
@@ -55,8 +64,8 @@ func (s *LinkService) Attach(ctx context.Context, projectID, instanceID, alias, 
 		}
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	v := domain.ProjectResource{ID: uuid.NewString(), ProjectID: projectID, ResourceInstanceID: instanceID, Alias: alias, Purpose: purpose, CreatedAt: now, UpdatedAt: now}
-	err = s.q.InsertProjectResource(ctx, store.InsertProjectResourceParams{ID: v.ID, ProjectID: projectID, ResourceInstanceID: instanceID, Alias: alias, Purpose: purpose, CreatedAt: now, UpdatedAt: now})
+	v := domain.ProjectResource{ID: uuid.NewString(), ProjectID: projectID, ResourceInstanceID: instanceID, Alias: alias, Role: role, Purpose: purpose, CreatedAt: now, UpdatedAt: now}
+	err = s.q.InsertProjectResource(ctx, store.InsertProjectResourceParams{ID: v.ID, ProjectID: projectID, ResourceInstanceID: instanceID, Alias: alias, Role: string(role), Purpose: purpose, CreatedAt: now, UpdatedAt: now})
 	if err != nil {
 		return domain.ProjectResource{}, fmt.Errorf("%w: alias or resource already attached: %v", ErrConflict, err)
 	}
@@ -73,7 +82,7 @@ func (s *LinkService) ListProjectResources(ctx context.Context, projectID string
 	}
 	return result, nil
 }
-func (s *LinkService) UpdateProjectResource(ctx context.Context, id, alias, purpose string) (domain.ProjectResource, error) {
+func (s *LinkService) UpdateProjectResource(ctx context.Context, id, alias string, role domain.ResourceRole, purpose string) (domain.ProjectResource, error) {
 	row, err := s.q.GetProjectResource(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.ProjectResource{}, ErrNotFound
@@ -84,14 +93,50 @@ func (s *LinkService) UpdateProjectResource(ctx context.Context, id, alias, purp
 	if alias == "" {
 		alias = row.Alias
 	}
+	if role == "" {
+		role = domain.ResourceRole(row.Role)
+	}
+	instance, err := s.q.GetResourceInstance(ctx, row.ResourceInstanceID)
+	if err != nil {
+		return domain.ProjectResource{}, err
+	}
+	if err = s.validateRole(domain.ProductID(instance.ProviderProductID), role); err != nil {
+		return domain.ProjectResource{}, err
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err = s.q.UpdateProjectResource(ctx, store.UpdateProjectResourceParams{Alias: alias, Purpose: purpose, UpdatedAt: now, ID: id}); err != nil {
+	if err = s.q.UpdateProjectResource(ctx, store.UpdateProjectResourceParams{Alias: alias, Role: string(role), Purpose: purpose, UpdatedAt: now, ID: id}); err != nil {
 		return domain.ProjectResource{}, fmt.Errorf("%w: alias already exists", ErrConflict)
 	}
 	updated, err := s.q.GetProjectResource(ctx, id)
 	return projectResourceFromStore(updated), err
 }
 func (s *LinkService) Detach(ctx context.Context, projectID, id string) error {
+	link, err := s.q.GetProjectResource(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && link.ProjectID != projectID) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	attached, err := s.q.ListProjectResources(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	attachedIDs := make(map[string]struct{}, len(attached))
+	for _, item := range attached {
+		attachedIDs[item.ResourceInstanceID] = struct{}{}
+	}
+	dependencies, err := s.q.ListRelationsTo(ctx, link.ResourceInstanceID)
+	if err != nil {
+		return err
+	}
+	for _, relation := range dependencies {
+		if relation.RelationType == string(domain.RelationSourceRepo) {
+			if _, exists := attachedIDs[relation.FromResourceInstanceID]; exists {
+				return fmt.Errorf("%w: detach dependent resources before their source repository", ErrConflict)
+			}
+		}
+	}
 	affected, err := s.q.DeleteProjectResource(ctx, store.DeleteProjectResourceParams{ID: id, ProjectID: projectID})
 	if err != nil {
 		return err
@@ -100,6 +145,25 @@ func (s *LinkService) Detach(ctx context.Context, projectID, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (s *LinkService) validateRole(productID domain.ProductID, role domain.ResourceRole) error {
+	if !domain.IsResourceRole(role) {
+		return fmt.Errorf("%w: invalid resource role %q", ErrUnprocessable, role)
+	}
+	if s.registry == nil {
+		return fmt.Errorf("%w: product registry unavailable", ErrUnprocessable)
+	}
+	_, driver, err := s.registry.Resolve(productID)
+	if err != nil {
+		return fmt.Errorf("%w: product %s is not registered", ErrUnprocessable, productID)
+	}
+	for _, compatible := range driver.Descriptor().CompatibleRoles {
+		if role == compatible {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: role %q is incompatible with product %s", ErrUnprocessable, role, productID)
 }
 
 func (s *LinkService) CreateRelation(ctx context.Context, from, to string, relationType domain.RelationType, origin domain.RelationOrigin, config any) (domain.ResourceRelation, error) {
@@ -124,10 +188,6 @@ func (s *LinkService) createRelation(ctx context.Context, from, to string, relat
 		}
 		if source.ResourceKind == string(domain.ResourceKindCIPipeline) && source.ConnectionID != target.ConnectionID {
 			return domain.ResourceRelation{}, fmt.Errorf("%w: pipeline and source repository must use the same connection", ErrInvalid)
-		}
-	case domain.RelationDeploysTo:
-		if source.ResourceKind != string(domain.ResourceKindCIPipeline) || (target.ResourceKind != string(domain.ResourceKindPage) && target.ResourceKind != string(domain.ResourceKindServerlessService)) {
-			return domain.ResourceRelation{}, fmt.Errorf("%w: invalid deploys_to kinds", ErrInvalid)
 		}
 	default:
 		return domain.ResourceRelation{}, fmt.Errorf("%w: invalid relation type", ErrInvalid)
@@ -174,5 +234,5 @@ func (s *LinkService) DeleteRelation(ctx context.Context, id string) error {
 
 // ResourceService uses the same relation invariants while provisioning.
 func (s *ResourceService) createRelation(ctx context.Context, from, to string, relationType domain.RelationType, origin domain.RelationOrigin, config any) (domain.ResourceRelation, error) {
-	return NewLinkService(s.q).createRelation(ctx, from, to, relationType, origin, config)
+	return NewLinkService(s.q, s.registry).createRelation(ctx, from, to, relationType, origin, config)
 }

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"mevius/internal/domain"
 )
 
 func TestProbeReturnsEveryAccessibleAccount(t *testing.T) {
@@ -26,5 +28,12 @@ func TestProbeReturnsEveryAccessibleAccount(t *testing.T) {
 	}
 	if len(result.Scopes) != 2 || result.Scopes[1].ID != "b" {
 		t.Fatalf("unexpected scopes: %#v", result.Scopes)
+	}
+}
+
+func TestDeploymentNormalization(t *testing.T) {
+	got := deploymentFromProvider(deployment{ID: "dep", Status: "success", Environment: "production", URL: "https://example.test", CreatedOn: "2026-01-01T00:00:00Z"})
+	if got.Status != domain.DeploymentSucceeded || got.Environment != "production" || got.ID != "dep" {
+		t.Fatalf("unexpected deployment: %#v", got)
 	}
 }

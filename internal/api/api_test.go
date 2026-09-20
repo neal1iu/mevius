@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"mevius/internal/provider"
+	"mevius/internal/service"
 )
 
 func TestCatalogRequiresAuthAndContainsProducts(t *testing.T) {
@@ -30,5 +31,14 @@ func TestCatalogRequiresAuthAndContainsProducts(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "github.actions") {
 		t.Fatalf("catalog missing pipeline product: %s", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"resource_roles"`) || !strings.Contains(response.Body.String(), `"compatible_roles":["automation"]`) {
+		t.Fatalf("catalog missing role taxonomy: %s", response.Body.String())
+	}
+}
+
+func TestUnprocessableStatus(t *testing.T) {
+	if got := statusFor(service.ErrUnprocessable); got != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d", got)
 	}
 }

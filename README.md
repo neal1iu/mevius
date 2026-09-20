@@ -77,20 +77,20 @@ docker compose exec api mevius seed
 This populates the database with scoped connections, global resource instances,
 project links, and an example `source_repo` relation.
 
-## Schema epoch 4 reset
+## Schema epoch 5 reset
 
-This release intentionally replaces the old Slot/Binding database with the
-ResourceInstance model. There is no automatic data migration. On startup,
-Mevius detects an old `slot` or `binding` table and exits before changing it.
-Existing ResourceInstance databases at epoch 2 or 3 are migrated in place to add
-OAuth connection metadata, authorization sessions, and encrypted OAuth client
-configuration.
+This release freezes the ResourceInstance core model, adds typed project roles,
+and separates pipeline executions from deployments. There is no automatic data
+migration. On startup, Mevius rejects old `slot`/`binding` databases and every
+ResourceInstance database before epoch 5, then exits before changing it. OAuth
+connection metadata and encrypted OAuth client configuration are included in
+the new epoch 5 baseline.
 
 Back up before resetting:
 
 ```bash
-docker compose exec api sh -c 'cp /data/mevius.db /tmp/mevius-epoch1.db'
-docker compose cp api:/tmp/mevius-epoch1.db ./mevius-epoch1.db
+docker compose exec api sh -c 'cp /data/mevius.db /tmp/mevius-pre-epoch5.db'
+docker compose cp api:/tmp/mevius-pre-epoch5.db ./mevius-pre-epoch5.db
 ```
 
 For a local (non-Compose) database, stop Mevius and remove the configured DB

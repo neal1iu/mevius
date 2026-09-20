@@ -65,6 +65,7 @@ type ProjectResource struct {
 	ProjectID          string
 	ResourceInstanceID string
 	Alias              string
+	Role               string
 	Purpose            string
 	CreatedAt          string
 	UpdatedAt          string
@@ -83,9 +84,9 @@ type ProviderConnection struct {
 	RemoteIdentityJson   string
 	PermissionsJson      string
 	PermissionsCheckedAt *string
+	AuthMethod           string
 	CreatedAt            string
 	UpdatedAt            string
-	AuthMethod           string
 }
 
 type ResourceInstance struct {

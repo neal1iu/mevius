@@ -22,7 +22,7 @@ func (q *Queries) DeleteProviderConnection(ctx context.Context, id string) (int6
 }
 
 const getProviderConnection = `-- name: GetProviderConnection :one
-SELECT id, provider_id, label, endpoint, scope_type, scope_id, scope_label, config_json, encrypted_credential, remote_identity_json, permissions_json, permissions_checked_at, created_at, updated_at, auth_method FROM provider_connection WHERE id = ?
+SELECT id, provider_id, label, endpoint, scope_type, scope_id, scope_label, config_json, encrypted_credential, remote_identity_json, permissions_json, permissions_checked_at, auth_method, created_at, updated_at FROM provider_connection WHERE id = ?
 `
 
 func (q *Queries) GetProviderConnection(ctx context.Context, id string) (ProviderConnection, error) {
@@ -41,9 +41,9 @@ func (q *Queries) GetProviderConnection(ctx context.Context, id string) (Provide
 		&i.RemoteIdentityJson,
 		&i.PermissionsJson,
 		&i.PermissionsCheckedAt,
+		&i.AuthMethod,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.AuthMethod,
 	)
 	return i, err
 }
@@ -107,7 +107,7 @@ func (q *Queries) InsertProviderConnection(ctx context.Context, arg InsertProvid
 }
 
 const listProviderConnections = `-- name: ListProviderConnections :many
-SELECT id, provider_id, label, endpoint, scope_type, scope_id, scope_label, config_json, encrypted_credential, remote_identity_json, permissions_json, permissions_checked_at, created_at, updated_at, auth_method FROM provider_connection ORDER BY created_at DESC
+SELECT id, provider_id, label, endpoint, scope_type, scope_id, scope_label, config_json, encrypted_credential, remote_identity_json, permissions_json, permissions_checked_at, auth_method, created_at, updated_at FROM provider_connection ORDER BY created_at DESC
 `
 
 func (q *Queries) ListProviderConnections(ctx context.Context) ([]ProviderConnection, error) {
@@ -132,9 +132,9 @@ func (q *Queries) ListProviderConnections(ctx context.Context) ([]ProviderConnec
 			&i.RemoteIdentityJson,
 			&i.PermissionsJson,
 			&i.PermissionsCheckedAt,
+			&i.AuthMethod,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.AuthMethod,
 		); err != nil {
 			return nil, err
 		}

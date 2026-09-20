@@ -19,3 +19,18 @@ func TestCanonicalResourceKinds(t *testing.T) {
 		}
 	}
 }
+
+func TestCanonicalResourceRoles(t *testing.T) {
+	want := []ResourceRole{ResourceRoleSource, ResourceRoleFrontend, ResourceRoleBackend, ResourceRoleAutomation, ResourceRoleDatabase, ResourceRoleInfrastructure, ResourceRoleObservability}
+	if len(ResourceRoles) != len(want) {
+		t.Fatalf("roles=%d want=%d", len(ResourceRoles), len(want))
+	}
+	for i, role := range want {
+		if ResourceRoles[i].ID != role || !IsResourceRole(role) {
+			t.Fatalf("role %d = %#v", i, ResourceRoles[i])
+		}
+	}
+	if IsResourceRole("unknown") {
+		t.Fatal("unknown role accepted")
+	}
+}

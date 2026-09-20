@@ -38,7 +38,7 @@ func (q *Queries) DeleteProjectResource(ctx context.Context, arg DeleteProjectRe
 }
 
 const getProjectResource = `-- name: GetProjectResource :one
-SELECT id, project_id, resource_instance_id, alias, purpose, created_at, updated_at FROM project_resource WHERE id = ?
+SELECT id, project_id, resource_instance_id, alias, role, purpose, created_at, updated_at FROM project_resource WHERE id = ?
 `
 
 func (q *Queries) GetProjectResource(ctx context.Context, id string) (ProjectResource, error) {
@@ -49,6 +49,7 @@ func (q *Queries) GetProjectResource(ctx context.Context, id string) (ProjectRes
 		&i.ProjectID,
 		&i.ResourceInstanceID,
 		&i.Alias,
+		&i.Role,
 		&i.Purpose,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -58,8 +59,8 @@ func (q *Queries) GetProjectResource(ctx context.Context, id string) (ProjectRes
 
 const insertProjectResource = `-- name: InsertProjectResource :exec
 INSERT INTO project_resource (
-    id, project_id, resource_instance_id, alias, purpose, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?)
+    id, project_id, resource_instance_id, alias, role, purpose, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertProjectResourceParams struct {
@@ -67,6 +68,7 @@ type InsertProjectResourceParams struct {
 	ProjectID          string
 	ResourceInstanceID string
 	Alias              string
+	Role               string
 	Purpose            string
 	CreatedAt          string
 	UpdatedAt          string
@@ -78,6 +80,7 @@ func (q *Queries) InsertProjectResource(ctx context.Context, arg InsertProjectRe
 		arg.ProjectID,
 		arg.ResourceInstanceID,
 		arg.Alias,
+		arg.Role,
 		arg.Purpose,
 		arg.CreatedAt,
 		arg.UpdatedAt,
@@ -86,7 +89,7 @@ func (q *Queries) InsertProjectResource(ctx context.Context, arg InsertProjectRe
 }
 
 const listProjectResources = `-- name: ListProjectResources :many
-SELECT id, project_id, resource_instance_id, alias, purpose, created_at, updated_at FROM project_resource WHERE project_id = ? ORDER BY created_at ASC
+SELECT id, project_id, resource_instance_id, alias, role, purpose, created_at, updated_at FROM project_resource WHERE project_id = ? ORDER BY created_at ASC
 `
 
 func (q *Queries) ListProjectResources(ctx context.Context, projectID string) ([]ProjectResource, error) {
@@ -103,6 +106,7 @@ func (q *Queries) ListProjectResources(ctx context.Context, projectID string) ([
 			&i.ProjectID,
 			&i.ResourceInstanceID,
 			&i.Alias,
+			&i.Role,
 			&i.Purpose,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -121,11 +125,12 @@ func (q *Queries) ListProjectResources(ctx context.Context, projectID string) ([
 }
 
 const updateProjectResource = `-- name: UpdateProjectResource :exec
-UPDATE project_resource SET alias = ?, purpose = ?, updated_at = ? WHERE id = ?
+UPDATE project_resource SET alias = ?, role = ?, purpose = ?, updated_at = ? WHERE id = ?
 `
 
 type UpdateProjectResourceParams struct {
 	Alias     string
+	Role      string
 	Purpose   string
 	UpdatedAt string
 	ID        string
@@ -134,6 +139,7 @@ type UpdateProjectResourceParams struct {
 func (q *Queries) UpdateProjectResource(ctx context.Context, arg UpdateProjectResourceParams) error {
 	_, err := q.db.ExecContext(ctx, updateProjectResource,
 		arg.Alias,
+		arg.Role,
 		arg.Purpose,
 		arg.UpdatedAt,
 		arg.ID,

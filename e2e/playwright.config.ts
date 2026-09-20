@@ -8,6 +8,9 @@ export default defineConfig({
     baseURL: process.env.MEVIUS_BASE_URL || 'http://localhost',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    launchOptions: process.env.PLAYWRIGHT_EXECUTABLE_PATH
+      ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH }
+      : undefined,
   },
   projects: [
     {

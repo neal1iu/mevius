@@ -67,7 +67,7 @@ func (s *server) routes(r chi.Router) {
 	r.Delete("/resource-relations/{id}", s.deleteRelation)
 	r.Get("/resource-instances/{id}/deployments", s.listDeployments)
 	r.Post("/resource-instances/{id}/deployments", s.triggerDeployment)
-	r.Get("/resource-instances/{id}/deployments/{executionID}/logs", s.deploymentLogs)
+	r.Get("/resource-instances/{id}/deployments/{deploymentID}/logs", s.deploymentLogs)
 	r.Get("/resource-instances/{id}/pipeline-runs", s.listPipelineRuns)
 	r.Post("/resource-instances/{id}/pipeline-runs", s.triggerPipeline)
 	r.Get("/resource-instances/{id}/pipeline-runs/{runID}", s.getPipelineRun)
@@ -101,7 +101,7 @@ func statusFor(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, service.ErrConflict), errors.Is(err, service.ErrOperationInProgress), errors.Is(err, service.ErrDuplicateName):
 		return http.StatusConflict
-	case errors.Is(err, service.ErrUnsupported):
+	case errors.Is(err, service.ErrUnsupported), errors.Is(err, service.ErrUnprocessable):
 		return http.StatusUnprocessableEntity
 	default:
 		return http.StatusBadGateway

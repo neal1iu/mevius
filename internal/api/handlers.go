@@ -25,7 +25,7 @@ func decodeBody(r *http.Request, value any) error {
 }
 
 func (s *server) catalog(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"providers": s.registry.Descriptors()})
+	writeJSON(w, http.StatusOK, map[string]any{"providers": s.registry.Descriptors(), "resource_roles": domain.ResourceRoles})
 }
 func (s *server) oauthProviders(w http.ResponseWriter, r *http.Request) {
 	providers, err := s.oauth.Providers(r.Context())
@@ -239,15 +239,16 @@ func (s *server) listProjectResources(w http.ResponseWriter, r *http.Request) {
 }
 func (s *server) attachProjectResource(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		ResourceInstanceID string `json:"resource_instance_id"`
-		Alias              string `json:"alias"`
-		Purpose            string `json:"purpose"`
+		ResourceInstanceID string              `json:"resource_instance_id"`
+		Alias              string              `json:"alias"`
+		Role               domain.ResourceRole `json:"role"`
+		Purpose            string              `json:"purpose"`
 	}
 	if decodeBody(r, &input) != nil {
 		writeError(w, service.ErrInvalid)
 		return
 	}
-	result, err := s.links.Attach(r.Context(), chi.URLParam(r, "id"), input.ResourceInstanceID, input.Alias, input.Purpose)
+	result, err := s.links.Attach(r.Context(), chi.URLParam(r, "id"), input.ResourceInstanceID, input.Alias, input.Role, input.Purpose)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -256,14 +257,15 @@ func (s *server) attachProjectResource(w http.ResponseWriter, r *http.Request) {
 }
 func (s *server) updateProjectResource(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Alias   string `json:"alias"`
-		Purpose string `json:"purpose"`
+		Alias   string              `json:"alias"`
+		Role    domain.ResourceRole `json:"role"`
+		Purpose string              `json:"purpose"`
 	}
 	if decodeBody(r, &input) != nil {
 		writeError(w, service.ErrInvalid)
 		return
 	}
-	result, err := s.links.UpdateProjectResource(r.Context(), chi.URLParam(r, "resourceID"), input.Alias, input.Purpose)
+	result, err := s.links.UpdateProjectResource(r.Context(), chi.URLParam(r, "resourceID"), input.Alias, input.Role, input.Purpose)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -403,7 +405,13 @@ func (s *server) triggerDeployment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, result)
 }
 func (s *server) deploymentLogs(w http.ResponseWriter, r *http.Request) {
-	s.logs(w, r, chi.URLParam(r, "executionID"))
+	tail, _ := strconv.Atoi(r.URL.Query().Get("tail"))
+	result, err := s.runtime.DeploymentLogs(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "deploymentID"), tail)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 func (s *server) triggerPipeline(w http.ResponseWriter, r *http.Request) {
 	var input domain.TriggerPipelineRequest
@@ -451,11 +459,8 @@ func (s *server) rerunPipeline(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, result)
 }
 func (s *server) pipelineLogs(w http.ResponseWriter, r *http.Request) {
-	s.logs(w, r, chi.URLParam(r, "runID"))
-}
-func (s *server) logs(w http.ResponseWriter, r *http.Request, executionID string) {
 	tail, _ := strconv.Atoi(r.URL.Query().Get("tail"))
-	result, err := s.runtime.Logs(r.Context(), chi.URLParam(r, "id"), executionID, tail)
+	result, err := s.runtime.PipelineLogs(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "runID"), tail)
 	if err != nil {
 		writeError(w, err)
 		return

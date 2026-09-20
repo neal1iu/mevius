@@ -69,7 +69,7 @@ func run() error {
 	oauthSvc := service.NewOAuthService(q, masterKey, reg, connSvc, cfg.PublicURL, cfg.OAuthClients)
 	projectSvc := service.NewProjectService(q)
 	resourceSvc := service.NewResourceService(q, reg, credStore)
-	linkSvc := service.NewLinkService(q)
+	linkSvc := service.NewLinkService(q, reg)
 	runtimeSvc := service.NewRuntimeService(resourceSvc)
 
 	srv := &http.Server{

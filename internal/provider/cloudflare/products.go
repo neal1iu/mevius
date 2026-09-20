@@ -169,19 +169,20 @@ func (d *pageDriver) RecoverCreate(ctx context.Context, conn *domain.ProviderCon
 }
 
 type deployment struct {
-	ID         string           `json:"id"`
-	Status     string           `json:"status"`
-	CreatedOn  string           `json:"created_on"`
-	ModifiedOn string           `json:"modified_on"`
-	URL        string           `json:"url"`
-	Stages     []map[string]any `json:"stages"`
+	ID          string           `json:"id"`
+	Status      string           `json:"status"`
+	Environment string           `json:"environment"`
+	CreatedOn   string           `json:"created_on"`
+	ModifiedOn  string           `json:"modified_on"`
+	URL         string           `json:"url"`
+	Stages      []map[string]any `json:"stages"`
 }
 
-func execution(value deployment) domain.Execution {
-	return domain.Execution{ID: value.ID, Status: mapStatus(value.Status), ProviderStatus: value.Status, ExternalURL: value.URL, CreatedAt: value.CreatedOn, FinishedAt: value.ModifiedOn}
+func deploymentFromProvider(value deployment) domain.Deployment {
+	return domain.Deployment{ID: value.ID, Status: mapDeploymentStatus(value.Status), ProviderStatus: value.Status, Environment: value.Environment, ExternalURL: value.URL, CreatedAt: value.CreatedOn, FinishedAt: value.ModifiedOn}
 }
 
-func (d *pageDriver) ListDeployments(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) ([]domain.Execution, error) {
+func (d *pageDriver) ListDeployments(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) ([]domain.Deployment, error) {
 	raw, err := d.p.request(ctx, http.MethodGet, conn.Endpoint, string(credential), "/accounts/"+accountID(conn)+"/pages/projects/"+instance.ExternalID+"/deployments", nil)
 	if err != nil {
 		return nil, err
@@ -190,14 +191,14 @@ func (d *pageDriver) ListDeployments(ctx context.Context, conn *domain.ProviderC
 	if err := json.Unmarshal(raw, &values); err != nil {
 		return nil, err
 	}
-	result := make([]domain.Execution, 0, len(values))
+	result := make([]domain.Deployment, 0, len(values))
 	for _, value := range values {
-		result = append(result, execution(value))
+		result = append(result, deploymentFromProvider(value))
 	}
 	return result, nil
 }
 
-func (d *pageDriver) TriggerDeployment(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) (*domain.Execution, error) {
+func (d *pageDriver) TriggerDeployment(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) (*domain.Deployment, error) {
 	values, err := d.ListDeployments(ctx, conn, credential, instance)
 	if err != nil {
 		return nil, err
@@ -213,12 +214,12 @@ func (d *pageDriver) TriggerDeployment(ctx context.Context, conn *domain.Provide
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, err
 	}
-	result := execution(value)
+	result := deploymentFromProvider(value)
 	return &result, nil
 }
 
-func (d *pageDriver) GetLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance, executionID string, _ int) (domain.LogChunk, error) {
-	raw, err := d.p.request(ctx, http.MethodGet, conn.Endpoint, string(credential), "/accounts/"+accountID(conn)+"/pages/projects/"+instance.ExternalID+"/deployments/"+executionID, nil)
+func (d *pageDriver) GetDeploymentLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance, deploymentID string, _ int) (domain.LogChunk, error) {
+	raw, err := d.p.request(ctx, http.MethodGet, conn.Endpoint, string(credential), "/accounts/"+accountID(conn)+"/pages/projects/"+instance.ExternalID+"/deployments/"+deploymentID, nil)
 	if err != nil {
 		return domain.LogChunk{}, err
 	}
@@ -319,19 +320,19 @@ func (d *dnsDriver) DeleteRecord(ctx context.Context, conn *domain.ProviderConne
 }
 
 func mustJSON(v any) json.RawMessage { raw, _ := json.Marshal(v); return raw }
-func mapStatus(v string) domain.ExecutionStatus {
+func mapDeploymentStatus(v string) domain.DeploymentStatus {
 	switch strings.ToLower(v) {
 	case "queued", "initializing":
-		return domain.ExecutionQueued
+		return domain.DeploymentQueued
 	case "running", "in_progress":
-		return domain.ExecutionRunning
+		return domain.DeploymentRunning
 	case "success", "succeeded":
-		return domain.ExecutionSucceeded
+		return domain.DeploymentSucceeded
 	case "failure", "failed":
-		return domain.ExecutionFailed
+		return domain.DeploymentFailed
 	case "cancelled", "canceled":
-		return domain.ExecutionCancelled
+		return domain.DeploymentCancelled
 	default:
-		return domain.ExecutionUnknown
+		return domain.DeploymentUnknown
 	}
 }
