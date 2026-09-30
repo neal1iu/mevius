@@ -1,3 +1,6 @@
+// Package domain contains DTOs for the existing provider protocol drivers.
+// The canonical resource directory and public API entities live in internal/catalog.
+// Spec is a transient action input; ProviderConfig is an internal protocol locator.
 package domain
 
 import (
@@ -207,6 +210,7 @@ type Project struct {
 }
 
 type ResourceInstance struct {
+	IdentityParts     []string                       `json:"-"`
 	ID                string                         `json:"id"`
 	ConnectionID      string                         `json:"connection_id"`
 	ProviderProductID ProductID                      `json:"provider_product_id"`
@@ -256,6 +260,7 @@ type ResourceRelation struct {
 }
 
 type ExternalResource struct {
+	IdentityParts  []string                       `json:"identity_parts,omitempty"`
 	ExternalID     string                         `json:"external_id"`
 	ExternalURL    string                         `json:"external_url,omitempty"`
 	DisplayName    string                         `json:"display_name"`

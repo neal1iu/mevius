@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,12 +47,12 @@ func (p *GitHubProvider) Probe(ctx context.Context, endpoint string, credential 
 	result := &domain.ProbeResult{
 		Identity:    identity,
 		Permissions: permissions,
-		Scopes:      []domain.ProviderScope{{Type: "user", ID: user.GetLogin(), Label: user.GetLogin()}},
+		Scopes:      []domain.ProviderScope{{Type: "user", ID: user.GetLogin(), Label: user.GetLogin(), Meta: map[string]any{"uid": strconv.FormatInt(user.GetID(), 10)}}},
 	}
 	orgs, _, orgErr := client.Organizations.List(ctx, "", &gogithub.ListOptions{PerPage: 100})
 	if orgErr == nil {
 		for _, org := range orgs {
-			result.Scopes = append(result.Scopes, domain.ProviderScope{Type: "org", ID: org.GetLogin(), Label: org.GetLogin()})
+			result.Scopes = append(result.Scopes, domain.ProviderScope{Type: "org", ID: org.GetLogin(), Label: org.GetLogin(), Meta: map[string]any{"uid": strconv.FormatInt(org.GetID(), 10)}})
 		}
 	}
 	return result, nil
@@ -119,7 +120,18 @@ func (d *repositoryDriver) Inspect(ctx context.Context, conn *domain.ProviderCon
 	if owner == "" || repo == "" {
 		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "invalid repository external id"}
 	}
-	r, _, err := d.provider.ghClient(string(credential), conn.Endpoint).Repositories.Get(ctx, owner, repo)
+	client := d.provider.ghClient(string(credential), conn.Endpoint)
+	var r *gogithub.Repository
+	var err error
+	if len(instance.IdentityParts) == 1 {
+		var remoteID int64
+		remoteID, err = strconv.ParseInt(instance.IdentityParts[0], 10, 64)
+		if err == nil {
+			r, _, err = client.Repositories.GetByID(ctx, remoteID)
+		}
+	} else {
+		r, _, err = client.Repositories.Get(ctx, owner, repo)
+	}
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -160,23 +172,6 @@ func (d *repositoryDriver) Delete(ctx context.Context, conn *domain.ProviderConn
 	return nil
 }
 
-func (d *repositoryDriver) RecoverCreate(ctx context.Context, conn *domain.ProviderConnection, credential []byte, req domain.CreateResourceRequest) (*domain.ExternalResource, error) {
-	var spec domain.RepoSpec
-	if json.Unmarshal(req.Spec, &spec) != nil || spec.Name == "" {
-		return nil, nil
-	}
-	owner := conn.Scope.ID
-	r, _, err := d.provider.ghClient(string(credential), conn.Endpoint).Repositories.Get(ctx, owner, spec.Name)
-	if err != nil {
-		if mapError(err).Kind == provider.KindNotFound {
-			return nil, nil
-		}
-		return nil, mapError(err)
-	}
-	res := repoToExternal(r)
-	return &res, nil
-}
-
 func (p *GitHubProvider) ghClient(token, endpoint string) *gogithub.Client {
 	tc := &http.Client{Timeout: 15 * time.Second}
 	client := gogithub.NewClient(tc).WithAuthToken(token)
@@ -186,7 +181,7 @@ func (p *GitHubProvider) ghClient(token, endpoint string) *gogithub.Client {
 
 func repoToExternal(r *gogithub.Repository) domain.ExternalResource {
 	spec, _ := json.Marshal(domain.RepoSpec{Name: r.GetName(), Private: r.GetPrivate(), Description: r.GetDescription()})
-	return domain.ExternalResource{ExternalID: r.GetFullName(), ExternalURL: r.GetHTMLURL(), DisplayName: r.GetName(), Spec: spec,
+	return domain.ExternalResource{IdentityParts: []string{strconv.FormatInt(r.GetID(), 10)}, ExternalID: r.GetFullName(), ExternalURL: r.GetHTMLURL(), DisplayName: r.GetName(), Spec: spec,
 		ProviderConfig: json.RawMessage(`{"version":1}`), Meta: map[string]any{"private": r.GetPrivate(), "default_branch": r.GetDefaultBranch(), "html_url": r.GetHTMLURL()}}
 }
 

@@ -84,7 +84,7 @@ func pageExternal(value pageProject) *domain.ExternalResource {
 		meta["source_repo"] = value.Source.Config.Owner + "/" + value.Source.Config.RepoName
 		meta["production_branch"] = value.Source.Config.ProductionBranch
 	}
-	return &domain.ExternalResource{ExternalID: value.Name, DisplayName: value.Name, ExternalURL: value.Subdomain, Meta: meta, Capabilities: capabilities}
+	return &domain.ExternalResource{IdentityParts: []string{value.ID}, ExternalID: value.Name, DisplayName: value.Name, ExternalURL: value.Subdomain, Meta: meta, Capabilities: capabilities}
 }
 
 func (d *pageDriver) Discover(ctx context.Context, conn *domain.ProviderConnection, credential []byte, _ domain.DiscoveryScope) ([]domain.ExternalResource, error) {
@@ -159,13 +159,6 @@ func (d *pageDriver) Create(ctx context.Context, conn *domain.ProviderConnection
 func (d *pageDriver) Delete(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance) error {
 	_, err := d.p.request(ctx, http.MethodDelete, conn.Endpoint, string(credential), "/accounts/"+accountID(conn)+"/pages/projects/"+instance.ExternalID, nil)
 	return err
-}
-func (d *pageDriver) RecoverCreate(ctx context.Context, conn *domain.ProviderConnection, credential []byte, req domain.CreateResourceRequest) (*domain.ExternalResource, error) {
-	var spec domain.PageSpec
-	if json.Unmarshal(req.Spec, &spec) != nil {
-		return nil, nil
-	}
-	return d.Inspect(ctx, conn, credential, &domain.ResourceInstance{ExternalID: spec.Name})
 }
 
 type deployment struct {

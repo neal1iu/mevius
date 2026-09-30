@@ -1,8 +1,6 @@
 BINARY  := mevius
 PKG     := ./...
 CMD     := ./cmd/mevius
-GOBIN   := $(shell go env GOPATH)/bin
-LINT    := $(GOBIN)/golangci-lint
 
 .PHONY: build test lint run tidy clean
 
@@ -13,7 +11,8 @@ test:
 	go test $(PKG)
 
 lint:
-	$(LINT) run
+	go vet $(PKG)
+	npm --prefix web run lint
 
 run:
 	go run $(CMD)

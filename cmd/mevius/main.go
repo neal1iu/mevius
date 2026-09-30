@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"mevius/internal/api"
+	"mevius/internal/catalog"
 	"mevius/internal/config"
-	"mevius/internal/provider"
+	"mevius/internal/integrations"
 	cfprov "mevius/internal/provider/cloudflare"
 	ghprov "mevius/internal/provider/github"
 	vcprov "mevius/internal/provider/vercel"
-	"mevius/internal/service"
 	"mevius/internal/store"
 )
 
@@ -26,6 +26,8 @@ const shutdownTimeout = 10 * time.Second
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "reset":
+			os.Exit(resetRun(os.Args[2:]))
 		case "seed":
 			os.Exit(seedRun(os.Args[2:]))
 		}
@@ -56,25 +58,25 @@ func run() error {
 	var masterKey [32]byte
 	copy(masterKey[:], cfg.MasterKey)
 
-	q := store.New(db)
-
-	reg := provider.NewRegistry()
-	reg.Register(ghprov.NewProvider())
-	reg.Register(cfprov.NewProvider())
-	reg.Register(vcprov.NewProvider())
-
-	credStore := provider.NewCredentialStore(masterKey, q)
-
-	connSvc := service.NewConnectionService(q, masterKey, reg)
-	oauthSvc := service.NewOAuthService(q, masterKey, reg, connSvc, cfg.PublicURL, cfg.OAuthClients)
-	projectSvc := service.NewProjectService(q)
-	resourceSvc := service.NewResourceService(q, reg, credStore)
-	linkSvc := service.NewLinkService(q, reg)
-	runtimeSvc := service.NewRuntimeService(resourceSvc)
+	reg := catalog.NewRegistry()
+	directory := catalog.NewService(db, reg, masterKey)
+	integrations.Register(directory, ghprov.NewProvider())
+	integrations.Register(directory, cfprov.NewProvider())
+	integrations.Register(directory, vcprov.NewProvider())
+	if err := reg.ValidateReady(); err != nil {
+		return err
+	}
+	if err := directory.RecoverInterrupted(context.Background()); err != nil {
+		return err
+	}
+	oauth := catalog.NewOAuthService(directory, cfg.PublicURL, cfg.OAuthClients)
+	if err := oauth.ExpireSessions(context.Background()); err != nil {
+		return err
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.NewRouter(cfg.APIToken, logger, connSvc, projectSvc, resourceSvc, linkSvc, runtimeSvc, oauthSvc, reg),
+		Handler:           api.NewCatalogRouter(cfg.APIToken, logger, directory, oauth),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

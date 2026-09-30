@@ -50,11 +50,14 @@ func (c *Client) DoReq(ctx context.Context, method, path string, body []byte, he
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, (16<<20)+1))
 	if err != nil {
 		return nil, err
 	}
 
+	if len(respBody) > 16<<20 {
+		return nil, &Error{Kind: KindUpstream, ProviderMsg: "provider response exceeds 16MB limit"}
+	}
 	if resp.StatusCode >= 400 {
 		h := make(map[string][]string)
 		for k, v := range resp.Header {

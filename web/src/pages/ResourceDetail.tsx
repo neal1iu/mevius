@@ -1,19 +1,426 @@
-import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { apiFetch, idempotencyKey, type Deployment, type DNSRecord, type Execution, type ResourceInstance } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-
-function ResourceDetail(){const{id}=useParams();const qc=useQueryClient();const navigate=useNavigate();const{data:item,isLoading}=useQuery({queryKey:['resource',id],queryFn:()=>apiFetch<ResourceInstance>(`/resource-instances/${id}`),enabled:Boolean(id)});const refresh=useMutation({mutationFn:()=>apiFetch<ResourceInstance>(`/resource-instances/${id}/refresh`,{method:'POST'}),onSuccess:value=>qc.setQueryData(['resource',id],value)});const release=useMutation({mutationFn:()=>apiFetch<ResourceInstance>(`/resource-instances/${id}/release`,{method:'POST'}),onSuccess:value=>qc.setQueryData(['resource',id],value)});const remove=useMutation({mutationFn:()=>apiFetch<void>(item?.lifecycle_mode==='managed'?`/resource-instances/${id}/remote`:`/resource-instances/${id}`,{method:'DELETE',headers:item?.lifecycle_mode==='managed'?{'Idempotency-Key':idempotencyKey()}:undefined}),onSuccess:()=>{qc.invalidateQueries({queryKey:['resources']});navigate('/inventory')}});if(isLoading)return <p className="text-sm text-muted-foreground">Loading…</p>;if(!item)return <p>Resource not found.</p>;return <div><Link to="/inventory" className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground"><ArrowLeft className="size-4"/>Inventory</Link><div className="mb-8 flex items-start justify-between"><div><p className="text-xs uppercase tracking-[.18em] text-muted-foreground">{item.resource_kind}</p><h1 className="mt-2 text-2xl font-medium">{item.display_name}</h1><p className="mt-1 text-sm text-muted-foreground">{item.provider_product_id} · {item.external_id}</p></div><Button variant="outline" onClick={()=>refresh.mutate()}><RefreshCw className="size-4"/>Refresh</Button></div><div className="grid gap-5 md:grid-cols-2"><section className="rounded-xl border p-5"><h2 className="font-medium">Identity</h2><dl className="mt-4 grid grid-cols-[120px_1fr] gap-y-3 text-sm"><dt className="text-muted-foreground">Lifecycle</dt><dd>{item.lifecycle_mode}</dd><dt className="text-muted-foreground">Sync</dt><dd>{item.sync_status}</dd><dt className="text-muted-foreground">Connection</dt><dd>{item.connection_id}</dd><dt className="text-muted-foreground">Last synced</dt><dd>{item.last_synced_at??'Never'}</dd></dl></section><section className="rounded-xl border p-5"><h2 className="font-medium">Effective capabilities</h2><div className="mt-4 space-y-2">{Object.entries(item.capabilities??{}).map(([name,state])=><div key={name} className="flex items-start justify-between gap-4 text-sm"><span>{name}</span><span className={state.availability==='unavailable'?'text-destructive':'text-muted-foreground'} title={state.reason}>{state.availability}{state.reason?' ⓘ':''}</span></div>)}</div></section></div><RuntimePanel item={item}/><section className="mt-5 rounded-xl border p-5"><h2 className="font-medium">Lifecycle actions</h2><p className="mt-1 text-sm text-muted-foreground">Detach happens inside a project. Release changes ownership without touching the provider. Forget removes an imported local record. Delete remote destroys a managed provider resource.</p><div className="mt-4 flex gap-2">{item.lifecycle_mode==='managed'&&<Button variant="outline" onClick={()=>release.mutate()}>Release to imported</Button>}<Button variant="destructive" onClick={()=>{if(confirm(item.lifecycle_mode==='managed'?'Delete the remote resource permanently?':'Forget this local inventory record?'))remove.mutate()}}>{item.lifecycle_mode==='managed'?'Delete remote':'Forget instance'}</Button></div></section></div>}
-
-function available(item:ResourceInstance,capability:string){return item.capabilities?.[capability]?.availability!=='unavailable'}
-function RuntimePanel({item}:{item:ResourceInstance}){if(item.resource_kind==='ci_pipeline')return <PipelineRuns item={item}/>;if(item.resource_kind==='page')return <Deployments item={item}/>;if(item.resource_kind==='dns_zone')return <DNS item={item}/>;return null}
-
-function PipelineRuns({item}:{item:ResourceInstance}){const qc=useQueryClient();const[logs,setLogs]=useState('');const base=`/resource-instances/${item.id}/pipeline-runs`;const key=['pipeline-runs',item.id];const{data:runs=[]}=useQuery({queryKey:key,queryFn:()=>apiFetch<Execution[]>(base)});const trigger=useMutation({mutationFn:()=>apiFetch<Execution>(base,{method:'POST',body:JSON.stringify({})}),onSuccess:()=>qc.invalidateQueries({queryKey:key})});const action=useMutation({mutationFn:({id,name}:{id:string;name:'cancel'|'rerun'})=>apiFetch(`${base}/${id}/${name}`,{method:'POST'}),onSuccess:()=>qc.invalidateQueries({queryKey:key})});async function showLogs(id:string){const result=await apiFetch<{lines:string}>(`${base}/${id}/logs?tail=256`);setLogs(result.lines)}return <section className="mt-5 rounded-xl border p-5"><div className="flex items-center justify-between"><div><h2 className="font-medium">Pipeline runs</h2><p className="text-xs text-muted-foreground">Live automation executions from the provider; not persisted by Mevius.</p></div><Button disabled={!available(item,'pipeline_trigger')} title={item.capabilities?.pipeline_trigger?.reason} onClick={()=>trigger.mutate()}>Trigger pipeline</Button></div><div className="mt-4 space-y-2">{runs.map(run=><div key={run.id} className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2 text-sm"><span className="font-medium">{run.status}</span><span className="flex-1 truncate text-xs text-muted-foreground">{run.ref??run.provider_status} · {run.commit_sha??run.id}</span><Button size="xs" variant="outline" disabled={!available(item,'pipeline_cancel')} onClick={()=>action.mutate({id:run.id,name:'cancel'})}>Cancel</Button><Button size="xs" variant="outline" disabled={!available(item,'pipeline_rerun')} onClick={()=>action.mutate({id:run.id,name:'rerun'})}>Rerun</Button><Button size="xs" variant="ghost" disabled={!available(item,'logs')} onClick={()=>showLogs(run.id)}>Logs</Button></div>)}</div>{logs&&<pre className="mt-4 max-h-72 overflow-auto rounded-lg bg-zinc-950 p-4 text-xs text-zinc-100">{logs}</pre>}</section>}
-
-function Deployments({item}:{item:ResourceInstance}){const qc=useQueryClient();const[logs,setLogs]=useState('');const base=`/resource-instances/${item.id}/deployments`;const key=['deployments',item.id];const{data:deployments=[]}=useQuery({queryKey:key,queryFn:()=>apiFetch<Deployment[]>(base)});const trigger=useMutation({mutationFn:()=>apiFetch<Deployment>(base,{method:'POST'}),onSuccess:()=>qc.invalidateQueries({queryKey:key})});async function showLogs(id:string){const result=await apiFetch<{lines:string}>(`${base}/${id}/logs?tail=256`);setLogs(result.lines)}return <section className="mt-5 rounded-xl border p-5"><div className="flex items-center justify-between"><div><h2 className="font-medium">Deployments</h2><p className="text-xs text-muted-foreground">Live release state transitions from the provider; not persisted by Mevius.</p></div><Button disabled={!available(item,'deploy')} title={item.capabilities?.deploy?.reason} onClick={()=>trigger.mutate()}>Deploy</Button></div><div className="mt-4 space-y-2">{deployments.map(deployment=><div key={deployment.id} className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2 text-sm"><span className="font-medium">{deployment.status}</span><span className="flex-1 truncate text-xs text-muted-foreground">{deployment.environment||'default'} · {deployment.revision||deployment.provider_status||deployment.id}</span>{deployment.artifact&&<span className="max-w-40 truncate text-xs text-muted-foreground" title={deployment.artifact}>{deployment.artifact}</span>}<Button size="xs" variant="ghost" disabled={!available(item,'logs')} onClick={()=>showLogs(deployment.id)}>Logs</Button></div>)}</div>{logs&&<pre className="mt-4 max-h-72 overflow-auto rounded-lg bg-zinc-950 p-4 text-xs text-zinc-100">{logs}</pre>}</section>}
-
-function DNS({item}:{item:ResourceInstance}){const qc=useQueryClient();const[name,setName]=useState('');const[content,setContent]=useState('');const key=['dns-records',item.id];const{data:records=[]}=useQuery({queryKey:key,queryFn:()=>apiFetch<DNSRecord[]>(`/resource-instances/${item.id}/dns-records`)});const create=useMutation({mutationFn:()=>apiFetch<DNSRecord>(`/resource-instances/${item.id}/dns-records`,{method:'POST',body:JSON.stringify({type:'A',name,content,ttl:300})}),onSuccess:()=>{setName('');setContent('');qc.invalidateQueries({queryKey:key})}});const remove=useMutation({mutationFn:(id:string)=>apiFetch<void>(`/resource-instances/${item.id}/dns-records/${id}`,{method:'DELETE'}),onSuccess:()=>qc.invalidateQueries({queryKey:key})});return <section className="mt-5 rounded-xl border p-5"><h2 className="font-medium">DNS records</h2><p className="text-xs text-muted-foreground">Read and changed directly at the provider.</p><div className="mt-4 flex gap-2"><Input placeholder="name" value={name} onChange={e=>setName(e.target.value)}/><Input placeholder="value" value={content} onChange={e=>setContent(e.target.value)}/><Button disabled={!name||!content||!available(item,'dns_manage')} onClick={()=>create.mutate()}>Add A record</Button></div><div className="mt-4 divide-y">{records.map(record=><div key={record.id} className="flex items-center gap-3 py-2 text-sm"><span className="w-12 font-medium">{record.type}</span><span>{record.name}</span><span className="flex-1 text-muted-foreground">{record.content}</span><Button size="xs" variant="ghost" onClick={()=>record.id&&remove.mutate(record.id)}>Delete</Button></div>)}</div></section>}
-export default ResourceDetail
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { apiFetch } from "@/lib/api";
+import {
+  document,
+  send,
+  submitOperation,
+  types,
+  type Catalog,
+  type ResourceDetail as Detail,
+  type Operation,
+  type Action,
+  type View,
+  type Resource,
+} from "@/lib/catalog";
+import {
+  SchemaFields,
+  ErrorMessage,
+  Snapshot,
+  buttonClass,
+} from "@/components/CatalogForm";
+export default function ResourceDetail() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [accessID, setAccessID] = useState("");
+  const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  const [relationType, setRelationType] = useState("related_to");
+  const [target, setTarget] = useState("");
+  const detail = useQuery({
+    queryKey: ["resource", id],
+    queryFn: () => apiFetch<Detail>(`/resource-instances/${id}`),
+  });
+  const catalog = useQuery({
+    queryKey: ["catalog"],
+    queryFn: () => apiFetch<Catalog>("/catalog"),
+  });
+  const resources = useQuery({
+    queryKey: ["resources"],
+    queryFn: () => apiFetch<Resource[]>("/resource-instances"),
+  });
+  const resource = detail.data?.resource;
+  const descriptor = types(catalog.data).find(
+    (t) => t.id === resource?.resource_type_id,
+  );
+  const accesses = detail.data?.accesses ?? [];
+  const selected =
+    accesses.find((a) => a.id === accessID) ??
+    (accesses.length === 1 ? accesses[0] : undefined);
+  async function work(fn: () => Promise<unknown>) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await fn();
+      await qc.invalidateQueries({ queryKey: ["resource", id] });
+      await qc.invalidateQueries({ queryKey: ["resources"] });
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!resource)
+    return (
+      <div className="p-6">
+        <ErrorMessage error={detail.error} />
+        {detail.isPending ? "Loading…" : "Resource unavailable"}
+      </div>
+    );
+  return (
+    <div className="space-y-5 p-6">
+      <Link to="/inventory">← Resource directory</Link>
+      <h1 className="text-2xl font-semibold">{resource.display_name}</h1>
+      <p>
+        {resource.resource_type_id} · origin {resource.origin} · identity{" "}
+        {resource.identity_key}
+      </p>
+      <ErrorMessage error={error} />
+      <label className="grid gap-2">
+        Access path
+        <select
+          className="rounded border p-2"
+          value={selected?.id ?? ""}
+          onChange={(e) => setAccessID(e.target.value)}
+        >
+          <option value="">Select an access path</option>
+          {accesses.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.connection_label} · {a.scope_label} · {a.validation_state} ·
+              credential revision {a.credential_revision} ·{" "}
+              {a.error_code ?? "observed"}
+            </option>
+          ))}
+        </select>
+      </label>
+      {accesses.length > 1 && !selected && (
+        <p>Choose the authorization path for observations and operations.</p>
+      )}
+      {selected && (
+        <>
+          <p>
+            Last success: {selected.last_success_at ?? "never"} · last attempt:{" "}
+            {selected.last_attempt_at}
+          </p>
+          <Snapshot value={selected.observation} />
+          <Snapshot value={selected.capabilities} />
+          <button
+            className={buttonClass}
+            disabled={busy}
+            onClick={() =>
+              void work(() =>
+                send(`/resource-instances/${id}/refresh`, {
+                  access_id: selected.id,
+                }),
+              )
+            }
+          >
+            Refresh this access
+          </button>
+        </>
+      )}
+      <div className="flex gap-3">
+        <button
+          className={buttonClass}
+          disabled={busy}
+          onClick={() =>
+            void work(() =>
+              send(
+                `/resource-instances/${id}/protection`,
+                { delete_protection: !resource.delete_protection },
+                "PATCH",
+              ),
+            )
+          }
+        >
+          {resource.delete_protection
+            ? "Remove deletion protection"
+            : "Protect from deletion"}
+        </button>
+        <button
+          className={buttonClass}
+          disabled={busy}
+          onClick={() => {
+            if (
+              window.confirm(
+                "Remove from the local directory? The remote resource will be preserved.",
+              )
+            )
+              void work(async () => {
+                await apiFetch(`/resource-instances/${id}`, {
+                  method: "DELETE",
+                });
+                navigate("/inventory");
+              });
+          }}
+        >
+          Forget locally; retain remote resource
+        </button>
+      </div>
+      {!descriptor && (
+        <p>
+          This historical resource type is not registered. Its identity and
+          snapshots remain available; operations are disabled.
+        </p>
+      )}
+      <h2 className="font-semibold">Relations</h2>
+      {detail.data?.relations.map((rel) => (
+        <div className="rounded border p-3" key={rel.id}>
+          <p>
+            {rel.relation_type} · {rel.origin} ·{" "}
+            {rel.observed_access_id ?? "annotation"}
+          </p>
+          {rel.reference.resolved_resource_id ? (
+            <Link to={`/inventory/${rel.reference.resolved_resource_id}`}>
+              Open verified target
+            </Link>
+          ) : (
+            <p>Unresolved remote reference</p>
+          )}
+          <Snapshot value={rel.reference} />
+          {rel.origin === "user" && (
+            <button
+              className={buttonClass}
+              disabled={busy}
+              onClick={() =>
+                void work(() =>
+                  apiFetch(`/resource-relations/${rel.id}`, {
+                    method: "DELETE",
+                  }),
+                )
+              }
+            >
+              Remove annotation
+            </button>
+          )}
+        </div>
+      ))}
+      <form
+        className="flex flex-wrap gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void work(async () => {
+            const r = resources.data?.find((r) => r.id === target);
+            if (!r) throw new Error("Select a resource");
+            const t = types(catalog.data).find(
+              (t) => t.id === r.resource_type_id,
+            );
+            if (!t) throw new Error("Target type unavailable");
+            await send("/resource-relations", {
+              from_resource_id: resource.id,
+              relation_type: relationType,
+              reference: {
+                provider_id: t.provider_id,
+                provider_instance_id: r.provider_instance_id,
+                resource_type_id: r.resource_type_id,
+                identity_parts: JSON.parse(r.identity_key),
+                remote: r.locator,
+              },
+              attributes: document({}),
+            });
+          });
+        }}
+      >
+        <select
+          value={relationType}
+          onChange={(e) => setRelationType(e.target.value)}
+        >
+          {catalog.data?.relations
+            .filter((r) => r.origin === "user")
+            .map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.id}
+              </option>
+            ))}
+        </select>
+        <select
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          required
+        >
+          <option value="">Select related resource</option>
+          {resources.data
+            ?.filter((r) => r.id !== id)
+            .map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.display_name}
+              </option>
+            ))}
+        </select>
+        <button className={buttonClass} disabled={busy}>
+          Add annotation
+        </button>
+      </form>
+      <h2 className="font-semibold">Live views</h2>
+      {descriptor?.views.map((v) => (
+        <ViewPanel
+          key={v.id}
+          view={v}
+          resourceID={resource.id}
+          accessID={selected?.id}
+        />
+      ))}
+      <h2 className="font-semibold">Write operations</h2>
+      {descriptor?.actions
+        .filter((a) => a.target === "resource")
+        .map((action) => (
+          <ActionPanel
+            key={action.id}
+            action={action}
+            resource={resource}
+            accessID={selected?.id}
+            allowed={
+              (selected?.capabilities[action.capability]?.availability ===
+                "available" ||
+                (selected?.capabilities[action.capability]?.availability ===
+                  "unknown" &&
+                  action.authorization === "remote")) &&
+              !selected?.error_code &&
+              (action.effect !== "delete" ||
+                (resource.origin === "mevius" && !resource.delete_protection))
+            }
+            onDone={() => qc.invalidateQueries({ queryKey: ["resource", id] })}
+          />
+        ))}
+      <OperationHistory resourceID={resource.id} />
+    </div>
+  );
+}
+function ViewPanel({
+  view,
+  resourceID,
+  accessID,
+}: {
+  view: View;
+  resourceID: string;
+  accessID?: string;
+}) {
+  const [input, setInput] = useState<Record<string, unknown>>({});
+  const [result, setResult] = useState<unknown>();
+  const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="space-y-3 rounded border p-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError(undefined);
+        try {
+          setResult(
+            await apiFetch(
+              `/resource-instances/${resourceID}/views/${view.id}?access_id=${encodeURIComponent(accessID ?? "")}&input=${encodeURIComponent(JSON.stringify(document(input, view.input.version)))}`,
+            ),
+          );
+        } catch (e) {
+          setError(e);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <h3>{view.display_name}</h3>
+      <SchemaFields schema={view.input} value={input} onChange={setInput} />
+      <button className={buttonClass} disabled={!accessID || busy}>
+        Read live view
+      </button>
+      <ErrorMessage error={error} />
+      {result !== undefined && <Snapshot value={result} />}
+    </form>
+  );
+}
+function ActionPanel({
+  action,
+  resource,
+  accessID,
+  allowed,
+  onDone,
+}: {
+  action: Action;
+  resource: Resource;
+  accessID?: string;
+  allowed: boolean;
+  onDone: () => Promise<unknown>;
+}) {
+  const [input, setInput] = useState<Record<string, unknown>>({});
+  const [op, setOp] = useState<Operation>();
+  const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="space-y-3 rounded border p-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (
+          action.effect === "delete" &&
+          !window.confirm("Permanently delete the remote resource?")
+        )
+          return;
+        setBusy(true);
+        setError(undefined);
+        try {
+          const result = await submitOperation({
+            resource_type_id: resource.resource_type_id,
+            action_id: action.id,
+            target_kind: "resource",
+            target_id: resource.id,
+            access_id: accessID,
+            input: document(input, action.input.version),
+          });
+          setOp(result);
+          await onDone();
+        } catch (e) {
+          setError(e);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <h3>{action.display_name}</h3>
+      <SchemaFields schema={action.input} value={input} onChange={setInput} />
+      <button
+        className={buttonClass}
+        disabled={!allowed || !accessID || busy || op?.status === "unknown"}
+      >
+        Submit {action.display_name}
+      </button>
+      {!allowed && (
+        <p className="text-sm text-muted-foreground">
+          This access or deletion policy does not allow the action.
+        </p>
+      )}
+      <ErrorMessage error={error} />
+      {op && (
+        <>
+          <p>Operation status: {op.status}</p>
+          {op.status === "unknown" && (
+            <p role="alert">
+              Remote outcome unknown. Check the provider before submitting
+              another operation.
+            </p>
+          )}
+          <Snapshot value={op} />
+        </>
+      )}
+    </form>
+  );
+}
+function OperationHistory({ resourceID }: { resourceID: string }) {
+  const operations = useQuery({
+    queryKey: ["operations"],
+    queryFn: () => apiFetch<Operation[]>("/operations"),
+  });
+  return (
+    <details>
+      <summary>Operation journal</summary>
+      <ErrorMessage error={operations.error} />
+      {operations.data
+        ?.filter((o) => o.target_id === resourceID)
+        .map((o) => (
+          <Snapshot key={o.id} value={o} />
+        ))}
+    </details>
+  );
+}

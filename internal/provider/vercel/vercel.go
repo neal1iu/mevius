@@ -218,13 +218,6 @@ func (d *projectDriver) Delete(ctx context.Context, conn *domain.ProviderConnect
 	_, err := d.p.request(ctx, http.MethodDelete, conn.Endpoint, credential, scopedPath("/v9/projects/"+url.PathEscape(instance.ExternalID), conn), nil)
 	return err
 }
-func (d *projectDriver) RecoverCreate(ctx context.Context, conn *domain.ProviderConnection, credential []byte, req domain.CreateResourceRequest) (*domain.ExternalResource, error) {
-	var spec domain.PageSpec
-	if json.Unmarshal(req.Spec, &spec) != nil {
-		return nil, nil
-	}
-	return d.Inspect(ctx, conn, credential, &domain.ResourceInstance{ExternalID: spec.Name})
-}
 
 type deployment struct {
 	UID     string         `json:"uid"`
@@ -291,7 +284,22 @@ func (d *projectDriver) TriggerDeployment(ctx context.Context, conn *domain.Prov
 	result := deploymentFromProvider(v)
 	return &result, nil
 }
-func (d *projectDriver) GetDeploymentLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, _ *domain.ResourceInstance, deploymentID string, tail int) (domain.LogChunk, error) {
+func (d *projectDriver) GetDeploymentLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance, deploymentID string, tail int) (domain.LogChunk, error) {
+	// Verify the requested deployment through the project-filtered API before reading events.
+	deployments, err := d.ListDeployments(ctx, conn, credential, instance)
+	if err != nil {
+		return domain.LogChunk{}, err
+	}
+	belongs := false
+	for _, deployment := range deployments {
+		if deployment.ID == deploymentID {
+			belongs = true
+			break
+		}
+	}
+	if !belongs {
+		return domain.LogChunk{}, &provider.Error{Kind: provider.KindUnsupported, ProviderMsg: "deployment is not present in selected project's visible deployment list"}
+	}
 	path := "/v3/deployments/" + url.PathEscape(deploymentID) + "/events"
 	if tail > 0 {
 		path += "?limit=" + fmt.Sprint(tail)

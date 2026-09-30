@@ -1,18 +1,371 @@
-import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
-import { Plus, RefreshCw } from 'lucide-react'
-import { Dialog } from 'radix-ui'
-import { apiFetch, idempotencyKey, type Catalog, type Connection, type ExternalResource, type ResourceInstance } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-
-const kindLabels:Record<string,string>={git_repo:'Repository',ci_pipeline:'CI pipeline',page:'Page',serverless_service:'Serverless',dns_zone:'DNS zone'}
-function Badge({children}:{children:React.ReactNode}){return <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">{children}</span>}
-
-function Inventory(){const qc=useQueryClient();const[open,setOpen]=useState(false);const[productID,setProductID]=useState('');const[connectionID,setConnectionID]=useState('');const[mode,setMode]=useState<'import'|'create'>('import');const[parentID,setParentID]=useState('');const[sourceID,setSourceID]=useState('');const[name,setName]=useState('');const[selected,setSelected]=useState<ExternalResource|null>(null);const[discovered,setDiscovered]=useState<ExternalResource[]>([]);const[error,setError]=useState('');const{data:catalog}=useQuery({queryKey:['catalog'],queryFn:()=>apiFetch<Catalog>('/catalog/providers')});const{data:connections=[]}=useQuery({queryKey:['connections'],queryFn:()=>apiFetch<Connection[]>('/connections')});const{data:resources=[]}=useQuery({queryKey:['resources'],queryFn:()=>apiFetch<ResourceInstance[]>('/resource-instances')});const products=useMemo(()=>catalog?.providers.flatMap(item=>item.products)??[],[catalog]);const product=products.find(item=>item.id===productID);const validConnections=connections.filter(item=>item.provider_id===product?.provider_id);const repos=resources.filter(item=>item.resource_kind==='git_repo');const canCreate=product?.capabilities.includes('create')??false;
-const discover=useMutation({mutationFn:()=>apiFetch<ExternalResource[]>(`/connections/${connectionID}/products/${productID}/resources${parentID?`?parent_instance_id=${encodeURIComponent(parentID)}`:''}`),onSuccess:value=>{setDiscovered(value);setError('')},onError:(e:Error)=>setError(e.message)});const save=useMutation({mutationFn:async()=>{if(mode==='import'){if(!selected)throw new Error('Select a remote resource');return apiFetch<ResourceInstance>('/resource-instances/import',{method:'POST',body:JSON.stringify({connection_id:connectionID,provider_product_id:productID,external_id:selected.external_id,provider_config:selected.provider_config,parent_instance_id:parentID||undefined})})}const spec=product?.resource_kind==='git_repo'?{name,private:false}:{name,source_repo_instance_id:sourceID,production_branch:'main'};return apiFetch<ResourceInstance>('/resource-instances',{method:'POST',headers:{'Idempotency-Key':idempotencyKey()},body:JSON.stringify({connection_id:connectionID,provider_product_id:productID,spec,source_repo_instance_id:sourceID||undefined})})},onSuccess:()=>{qc.invalidateQueries({queryKey:['resources']});reset();setOpen(false)},onError:(e:Error)=>setError(e.message)});function reset(){setProductID('');setConnectionID('');setParentID('');setSourceID('');setName('');setSelected(null);setDiscovered([]);setError('');setMode('import')}
-return <div><div className="mb-8 flex items-end justify-between"><div><p className="text-xs font-medium uppercase tracking-[.18em] text-muted-foreground">Global resources</p><h1 className="mt-2 text-2xl font-medium">Inventory</h1><p className="mt-1 text-sm text-muted-foreground">One remote resource, reusable across projects.</p></div><Button onClick={()=>setOpen(true)}><Plus className="size-4"/>Add resource</Button></div><div className="overflow-hidden rounded-xl border"><div className="grid grid-cols-[1fr_150px_130px_110px] border-b bg-muted/30 px-5 py-2 text-xs text-muted-foreground"><span>Resource</span><span>Product</span><span>Lifecycle</span><span>Status</span></div>{resources.map(item=><Link key={item.id} to={`/inventory/${item.id}`} className="grid grid-cols-[1fr_150px_130px_110px] items-center border-b px-5 py-4 last:border-0 hover:bg-muted/30"><div><p className="font-medium">{item.display_name}</p><p className="text-xs text-muted-foreground">{kindLabels[item.resource_kind]??item.resource_kind} · {item.external_id}</p></div><span className="text-xs">{item.provider_product_id}</span><span><Badge>{item.lifecycle_mode}</Badge></span><span className="text-xs text-muted-foreground">{item.sync_status}</span></Link>)}{resources.length===0&&<p className="p-12 text-center text-sm text-muted-foreground">No resources have been imported or created.</p>}</div>
-<Dialog.Root open={open} onOpenChange={value=>{setOpen(value);if(!value)reset()}}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-40 bg-black/25"/><Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(94vw,560px)] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border bg-background p-6 shadow-xl"><Dialog.Title className="mb-5 text-lg font-medium">Add resource</Dialog.Title><div className="space-y-4"><label className="block text-sm">Product<select className="mt-1 h-9 w-full rounded-md border bg-background px-3" value={productID} onChange={e=>{setProductID(e.target.value);setConnectionID('');setDiscovered([])}}><option value="">Choose a product</option>{products.map(item=><option key={item.id} value={item.id}>{item.display_name} · {item.provider_id}</option>)}</select></label><label className="block text-sm">Scoped connection<select className="mt-1 h-9 w-full rounded-md border bg-background px-3" value={connectionID} onChange={e=>setConnectionID(e.target.value)}><option value="">Choose a connection</option>{validConnections.map(item=><option key={item.id} value={item.id}>{item.label} · {item.scope.label}</option>)}</select></label>{canCreate&&<div className="flex gap-2"><Button variant={mode==='import'?'default':'outline'} onClick={()=>setMode('import')}>Discover & import</Button><Button variant={mode==='create'?'default':'outline'} onClick={()=>setMode('create')}>Create managed</Button></div>}{mode==='import'?<>{product?.resource_kind==='ci_pipeline'&&<RepoSelect label="Parent repository" value={parentID} onChange={setParentID} repos={repos}/>}<Button variant="outline" disabled={!connectionID||discover.isPending||(product?.resource_kind==='ci_pipeline'&&!parentID)} onClick={()=>discover.mutate()}><RefreshCw className="size-4"/>Discover</Button><div className="space-y-2">{discovered.map(item=><button key={item.external_id} onClick={()=>setSelected(item)} className={`w-full rounded-lg border p-3 text-left text-sm ${selected?.external_id===item.external_id?'border-foreground':'border-border'}`}><span className="font-medium">{item.display_name}</span><span className="ml-2 text-xs text-muted-foreground">{item.external_id}</span></button>)}</div></>:<><label className="block text-sm">Name<Input className="mt-1" value={name} onChange={e=>setName(e.target.value)}/></label>{product?.resource_kind==='page'&&<RepoSelect label="Source repository" value={sourceID} onChange={setSourceID} repos={repos}/>}</>} {error&&<p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}<div className="flex justify-end gap-2"><Dialog.Close asChild><Button variant="outline">Cancel</Button></Dialog.Close><Button disabled={save.isPending||!connectionID||(mode==='import'&&!selected)||(mode==='create'&&!name)} onClick={()=>save.mutate()}>{save.isPending?'Saving…':mode==='import'?'Import':'Create'}</Button></div></div></Dialog.Content></Dialog.Portal></Dialog.Root></div>}
-function RepoSelect({label,value,onChange,repos}:{label:string;value:string;onChange:(value:string)=>void;repos:ResourceInstance[]}){return <label className="block text-sm">{label}<select className="mt-1 h-9 w-full rounded-md border bg-background px-3" value={value} onChange={e=>onChange(e.target.value)}><option value="">Choose a repository</option>{repos.map(repo=><option key={repo.id} value={repo.id}>{repo.display_name}</option>)}</select></label>}
-export default Inventory
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { apiFetch } from "@/lib/api";
+import {
+  document,
+  send,
+  submitOperation,
+  types,
+  type Catalog,
+  type Connection,
+  type ScopeResponse,
+  type Resource,
+  type Observation,
+  type Operation,
+  type Binding,
+  type Instance,
+} from "@/lib/catalog";
+import {
+  SchemaFields,
+  ErrorMessage,
+  Snapshot,
+  buttonClass,
+} from "@/components/CatalogForm";
+export default function Inventory() {
+  const qc = useQueryClient();
+  const [connection, setConnection] = useState("");
+  const [binding, setBinding] = useState("");
+  const [typeID, setTypeID] = useState("");
+  const [locator, setLocator] = useState<Record<string, unknown>>({});
+  const [confirmID, setConfirmID] = useState("");
+  const [create, setCreate] = useState<Record<string, unknown>>({});
+  const [parent, setParent] = useState<Record<string, unknown>>({});
+  const [discovered, setDiscovered] = useState<Observation[]>([]);
+  const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  const [operation, setOperation] = useState<Operation>();
+  const operations = useQuery({
+    queryKey: ["operations"],
+    queryFn: () => apiFetch<Operation[]>("/operations"),
+  });
+  const instances = useQuery({
+    queryKey: ["instances"],
+    queryFn: () => apiFetch<Instance[]>("/provider-instances"),
+  });
+  const catalog = useQuery({
+    queryKey: ["catalog"],
+    queryFn: () => apiFetch<Catalog>("/catalog"),
+  });
+  const resources = useQuery({
+    queryKey: ["resources"],
+    queryFn: () => apiFetch<Resource[]>("/resource-instances"),
+  });
+  const connections = useQuery({
+    queryKey: ["connections"],
+    queryFn: () => apiFetch<Connection[]>("/connections"),
+  });
+  const scopes = useQuery({
+    queryKey: ["scopes", connection],
+    queryFn: () => apiFetch<ScopeResponse>(`/connections/${connection}/scopes`),
+    enabled: !!connection,
+  });
+  const descriptor = types(catalog.data).find((t) => t.id === typeID);
+  const action = descriptor?.actions.find((a) => a.effect === "create");
+  const selectedBinding = scopes.data?.bindings.find((b) => b.id === binding);
+  const selectedScope = scopes.data?.scopes.find(
+    (s) => s.id === selectedBinding?.scope_id,
+  );
+  async function work(fn: () => Promise<unknown>) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await fn();
+      await qc.invalidateQueries({ queryKey: ["resources"] });
+      await qc.invalidateQueries({ queryKey: ["operations"] });
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function bindCandidate(index: number) {
+    await work(async () => {
+      const b = await send<Binding>(
+        `/connections/${connection}/scopes`,
+        scopes.data!.available[index],
+      );
+      setBinding(b.id);
+      await qc.invalidateQueries({ queryKey: ["scopes", connection] });
+    });
+  }
+  return (
+    <div className="space-y-6 p-6">
+      <h1 className="text-2xl font-semibold">Resource directory</h1>
+      <ErrorMessage
+        error={error ?? resources.error ?? catalog.error ?? scopes.error}
+      />
+      <div className="grid gap-3 rounded border p-4">
+        <h2 className="font-medium">Discover or import</h2>
+        <select
+          className="rounded border p-2"
+          value={connection}
+          onChange={(e) => {
+            setConnection(e.target.value);
+            setTypeID("");
+            setConfirmID("");
+            setBinding("");
+            setDiscovered([]);
+          }}
+        >
+          <option value="">Select authorization</option>
+          {connections.data?.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label} · revision {c.credential_revision}
+            </option>
+          ))}
+        </select>
+        <select
+          className="rounded border p-2"
+          value={binding}
+          onChange={(e) => setBinding(e.target.value)}
+        >
+          <option value="">Select bound scope</option>
+          {scopes.data?.bindings.map((b) => (
+            <option key={b.id} value={b.id}>
+              {scopes.data.scopes.find((s) => s.id === b.scope_id)?.label} ·{" "}
+              {b.validation_state}
+            </option>
+          ))}
+        </select>
+        {scopes.data?.available.map((s, i) => (
+          <button
+            className={buttonClass}
+            disabled={busy}
+            key={JSON.stringify(s.identity_parts)}
+            onClick={() => void bindCandidate(i)}
+          >
+            Bind / revalidate {s.label}
+          </button>
+        ))}
+        <select
+          className="rounded border p-2"
+          value={typeID}
+          onChange={(e) => {
+            setTypeID(e.target.value);
+            setConfirmID("");
+            setLocator({});
+            setCreate({});
+            setDiscovered([]);
+          }}
+        >
+          <option value="">Select resource type</option>
+          {types(catalog.data)
+            .filter(
+              (t) =>
+                !selectedScope ||
+                (t.scope_types.includes(selectedScope.scope_type) &&
+                  t.provider_id ===
+                    instances.data?.find(
+                      (i) => i.id === selectedScope.provider_instance_id,
+                    )?.provider_id),
+            )
+            .map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.display_name} · {t.provider_id}
+              </option>
+            ))}
+        </select>
+        {descriptor && (
+          <>
+            {descriptor.identity.natural && (
+              <label className="grid gap-2">
+                Natural identity cannot prove renames or recreation. To add
+                access to an existing object, explicitly confirm the matching
+                directory resource.
+                <select
+                  value={confirmID}
+                  onChange={(e) => setConfirmID(e.target.value)}
+                >
+                  <option value="">Import as a new object; do not merge</option>
+                  {resources.data
+                    ?.filter((r) => r.resource_type_id === typeID)
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        Confirm same object: {r.display_name} ({r.id})
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
+            <SchemaFields
+              schema={descriptor.locator}
+              value={locator}
+              onChange={setLocator}
+            />
+            {descriptor.identity.parent_type && (
+              <div>
+                <p>
+                  Remote parent locator (the parent does not need to be
+                  imported)
+                </p>
+                <SchemaFields
+                  schema={
+                    types(catalog.data).find(
+                      (t) => t.id === descriptor.identity.parent_type,
+                    )!.locator
+                  }
+                  value={parent}
+                  onChange={setParent}
+                />
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                className={buttonClass}
+                disabled={busy || !binding}
+                onClick={() =>
+                  void work(async () =>
+                    setDiscovered(
+                      await send<Observation[]>(
+                        `/connection-scopes/${binding}/resource-types/${typeID}/discover`,
+                        document(
+                          descriptor.identity.parent_type
+                            ? { parent_locator: parent }
+                            : {},
+                        ),
+                      ),
+                    ),
+                  )
+                }
+              >
+                Discover
+              </button>
+              <button
+                className={buttonClass}
+                disabled={busy || !binding}
+                onClick={() =>
+                  void work(() =>
+                    send("/resource-instances/import", {
+                      connection_scope_id: binding,
+                      resource_type_id: typeID,
+                      locator: document(locator, descriptor.locator.version),
+                      confirm_resource_id: confirmID || undefined,
+                    }),
+                  )
+                }
+              >
+                Import resource
+              </button>
+            </div>
+            {discovered.map((v) => (
+              <div
+                className="flex justify-between rounded border p-3"
+                key={JSON.stringify(v.identity_parts)}
+              >
+                <span>{v.display_name}</span>
+                <button
+                  className={buttonClass}
+                  disabled={busy}
+                  onClick={() =>
+                    void work(() =>
+                      send("/resource-instances/import", {
+                        connection_scope_id: binding,
+                        resource_type_id: typeID,
+                        locator: document(
+                          v.locator,
+                          descriptor.locator.version,
+                        ),
+                        confirm_resource_id: confirmID || undefined,
+                      }),
+                    )
+                  }
+                >
+                  Import
+                </button>
+              </div>
+            ))}
+          </>
+        )}
+        {action && (
+          <form
+            className="space-y-3 border-t pt-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void work(async () =>
+                setOperation(
+                  await submitOperation({
+                    resource_type_id: typeID,
+                    action_id: action.id,
+                    target_kind: "scope",
+                    target_id: binding,
+                    input: document(create, action.input.version),
+                  }),
+                ),
+              );
+            }}
+          >
+            <h2>{action.display_name}</h2>
+            <SchemaFields
+              schema={action.input}
+              value={create}
+              onChange={setCreate}
+            />
+            <button
+              className={buttonClass}
+              disabled={busy || !binding || operation?.status === "unknown"}
+            >
+              Submit write operation
+            </button>
+          </form>
+        )}
+        {operation && (
+          <>
+            <p>
+              Operation {operation.id}: {operation.status}
+            </p>
+            {operation.status === "unknown" && (
+              <p role="alert">
+                Outcome unknown. Inspect the remote provider before taking
+                another action. Replaying this request only returns its journal
+                entry.
+              </p>
+            )}
+            <Snapshot value={operation} />
+          </>
+        )}
+      </div>
+      <div className="grid gap-3">
+        {resources.data?.map((r) => (
+          <Link
+            className="rounded border p-4 hover:bg-muted"
+            key={r.id}
+            to={`/inventory/${r.id}`}
+          >
+            <strong>{r.display_name}</strong>
+            <p className="text-sm text-muted-foreground">
+              {r.resource_type_id} · {r.origin} · {r.identity_key}
+            </p>
+          </Link>
+        ))}
+      </div>
+      <details className="rounded border p-4">
+        <summary>
+          Operation journal (retained after forgetting resources)
+        </summary>
+        <ErrorMessage error={operations.error} />
+        {operations.data?.map((op) => (
+          <div key={op.id}>
+            <Snapshot value={op} />
+            {op.remote_operation_id && (
+              <button
+                className={buttonClass}
+                disabled={busy}
+                onClick={() =>
+                  void work(async () => {
+                    await apiFetch(`/operations/${op.id}/check`, {
+                      method: "POST",
+                    });
+                    await qc.invalidateQueries({ queryKey: ["operations"] });
+                  })
+                }
+              >
+                Check submitted operation result
+              </button>
+            )}
+          </div>
+        ))}
+      </details>
+    </div>
+  );
+}

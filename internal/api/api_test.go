@@ -1,44 +1,51 @@
-package api
+package api_test
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
+	"mevius/internal/api"
+	"mevius/internal/catalog"
+	fxt "mevius/internal/catalogtest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"mevius/internal/provider"
-	"mevius/internal/service"
 )
 
-func TestCatalogRequiresAuthAndContainsProducts(t *testing.T) {
-	registry := provider.NewRegistry()
-	registry.Register(provider.NewStubProvider("github"))
-	handler := NewRouter("secret", slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, nil, nil, nil, nil, registry)
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/catalog/providers", nil)
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthorized status=%d", response.Code)
+func TestCatalogAPIContractAndAuthBoundary(t *testing.T) {
+	f := fxt.New(t)
+	i := f.Instance(t, "public")
+	oauth := catalog.NewOAuthService(f.Service, "http://localhost", nil)
+	handler := api.NewCatalogRouter("local-secret", slog.New(slog.NewTextHandler(io.Discard, nil)), f.Service, oauth)
+	request := func(method, path, payload string, auth bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(payload))
+		if auth {
+			r.Header.Set("Authorization", "Bearer local-secret")
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
 	}
-	request = httptest.NewRequest(http.MethodGet, "/api/v1/catalog/providers", nil)
-	request.Header.Set("Authorization", "Bearer secret")
-	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Fatalf("catalog status=%d body=%s", response.Code, response.Body.String())
+	if w := request("GET", "/api/v1/catalog", "", false); w.Code != 401 {
+		t.Fatal(w.Code)
 	}
-	if !strings.Contains(response.Body.String(), "github.actions") {
-		t.Fatalf("catalog missing pipeline product: %s", response.Body.String())
+	if w := request("GET", "/api/v1/catalog", "", true); w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte("fixture.database")) {
+		t.Fatal(w.Code, w.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), `"resource_roles"`) || !strings.Contains(response.Body.String(), `"compatible_roles":["automation"]`) {
-		t.Fatalf("catalog missing role taxonomy: %s", response.Body.String())
+	if w := request("POST", "/api/v1/connections", `{"provider_instance_id":"`+i.ID+`","label":"bad","credential":"bad"}`, true); w.Code == 401 || bytes.Contains(w.Body.Bytes(), []byte("upstream-secret")) {
+		t.Fatal("upstream auth failure invalidated local session or leaked error", w.Code, w.Body.String())
 	}
-}
-
-func TestUnprocessableStatus(t *testing.T) {
-	if got := statusFor(service.ErrUnprocessable); got != http.StatusUnprocessableEntity {
-		t.Fatalf("status=%d", got)
+	if w := request("POST", "/api/v1/projects", `{"name":"ok","unknown":"secret"}`, true); w.Code != 400 {
+		t.Fatal("unknown request field accepted")
+	}
+	if w := request("POST", "/api/v1/projects", `{"name":"ok"}{"name":"trailing"}`, true); w.Code != 400 {
+		t.Fatal("trailing JSON accepted")
+	}
+	if w := request("POST", "/api/v1/projects", `{"name":"ok","description":"purpose"}`, true); w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte("T")) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := request("GET", "/healthz", "", false); w.Code != http.StatusOK {
+		t.Fatal(w.Code)
 	}
 }

@@ -8,8 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "e2e": "playwright test --config ../e2e/playwright.config.ts",
-    "test": "vitest"
+    "e2e": "playwright test --config e2e/playwright.config.ts",
+    "test": "vitest",
+    "format": "prettier --write src/lib/catalog* src/components/CatalogForm* src/pages/*.tsx"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
@@ -37,6 +38,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "jsdom": "^29.1.1",
     "oxlint": "^1.81.0",
+    "prettier": "3.9.9",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"

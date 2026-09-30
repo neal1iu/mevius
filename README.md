@@ -30,112 +30,79 @@ Open http://localhost, enter your `MEVIUS_API_TOKEN`, and start composing.
 | `MEVIUS_VERCEL_OAUTH_CLIENT_ID` / `..._CLIENT_SECRET` | | — | Enables a Vercel connectable-account integration. Both values are required together. |
 | `MEVIUS_VERCEL_OAUTH_SLUG` | Vercel OAuth only | — | URL slug of the Vercel integration used to build its installation URL. |
 
-## OAuth connections
+## Provider instances and authorizations
 
-Token connections and OAuth connections can be used side by side. Select OAuth
-on the Accounts page to open the OAuth application setup form. Mevius prefills
-the provider's standard authorization endpoint, token endpoint, scopes, and
-PKCE setting. Enter the OAuth client ID, client secret, and public Mevius URL,
-then register the callback URL shown by the form with the provider.
+Create a deployment instance in Connections, then add token or OAuth
+credentials. An authorization can bind several remote scopes. Replacing or
+removing credentials preserves resource IDs and project attachments. Inventory
+imports resources through a bound scope; details let you select the exact
+access path used for observations, views and actions.
 
-Environment variables remain available for immutable deployments. When both
-exist, the encrypted database configuration saved by the form takes precedence.
-Example callback URLs are:
+OAuth application configuration is available in Connections. Register the
+callback `https://YOUR-MEVIUS/api/v1/connections/oauth/callback/PROVIDER`.
+Environment configuration takes precedence over the editable database settings.
+Vercel needs an integration installation URL (or `MEVIUS_VERCEL_OAUTH_SLUG`
+for environment configuration). OAuth tokens and PKCE verifiers stay on the
+server; session consumption creates the authorization atomically and erases
+session secrets. Expired sessions are scrubbed. Expiring OAuth credentials
+currently require reauthorization; no refresh-token background process is used.
 
-```text
-https://mevius.example.com/api/v1/connections/oauth/callback/github
-https://mevius.example.com/api/v1/connections/oauth/callback/cloudflare
-https://mevius.example.com/api/v1/connections/oauth/callback/vercel
-```
+## Explicit epoch 6 reset
 
-After configuration, the Accounts page starts the provider authorization flow. Mevius keeps the
-state and PKCE verifier in a short-lived server-side session, exchanges the
-authorization code on the backend, encrypts the resulting credential, then
-asks the user to choose one discovered provider scope. Access and refresh
-tokens are never returned to frontend JavaScript.
-
-GitHub and Cloudflare use their standard OAuth applications. Vercel requires a
-connectable-account integration and its URL slug. Provider-specific endpoint
-and scope overrides are available through `..._AUTH_URL`, `..._TOKEN_URL`, and
-`..._SCOPES` variables with the same provider prefix.
-
-## Backup
+This pre-release changes the database and `/api/v1` wire shape. Epoch 5 and
+other old databases are refused without mutation. **Startup never resets data.**
+Stop the server, create a consistent backup and explicitly reset:
 
 ```bash
-# The SQLite database is stored on a Docker volume. To back it up:
-docker compose exec api sh -c 'cp /data/mevius.db /tmp/backup.db && docker compose cp api:/tmp/backup.db ./mevius-backup-$(date +%F).db'
+# Local installation; uses MEVIUS_DB_PATH (default ./mevius.db).
+mevius reset --confirm --backup ./mevius-pre-epoch6.backup.db
+mevius seed # optional offline demo snapshot; no fake usable credentials
 ```
 
-Restore by copying a backup into the volume and restarting.
-
-## Seed data
+For Compose, stop the API before resetting the same named volume:
 
 ```bash
-docker compose exec api mevius seed
+docker compose stop api
+docker compose run --rm api reset --confirm --backup /data/mevius-pre-epoch6.backup.db
+docker compose run --rm --entrypoint sh api -c 'cat /data/mevius-pre-epoch6.backup.db' > ./mevius-pre-epoch6.backup.db
+docker compose up -d
 ```
 
-This populates the database with scoped connections, global resource instances,
-project links, and an example `source_repo` relation.
+The backup command uses SQLite `VACUUM INTO`, including committed WAL data.
+It refuses an existing backup path and initializes epoch 6 only after backup
+succeeds. Backups contain encrypted authorization data: preserve the master key
+separately and protect backups. Restoring epoch 5 requires an epoch 5 binary.
+After release, the baseline is frozen and changes use incremental migrations.
 
-## Schema epoch 5 reset
+## Architecture and development
 
-This release freezes the ResourceInstance core model, adds typed project roles,
-and separates pipeline executions from deployments. There is no automatic data
-migration. On startup, Mevius rejects old `slot`/`binding` databases and every
-ResourceInstance database before epoch 5, then exits before changing it. OAuth
-connection metadata and encrypted OAuth client configuration are included in
-the new epoch 5 baseline.
-
-Back up before resetting:
-
-```bash
-docker compose exec api sh -c 'cp /data/mevius.db /tmp/mevius-pre-epoch5.db'
-docker compose cp api:/tmp/mevius-pre-epoch5.db ./mevius-pre-epoch5.db
-```
-
-For a local (non-Compose) database, stop Mevius and remove the configured DB
-file plus its `-wal` and `-shm` sidecars. For the Compose database, reset the
-named volume explicitly:
+See [the resource catalog contract](docs/resource-catalog.md) for integration
+interfaces, identity rules, operation guarantees and the acceptance-test map.
+New integrations implement a compiled Go adapter plus versioned product/type
+schemas. Products may declare multiple resource types. The core and generic UI
+have no resource-kind/provider routing branches.
 
 ```bash
-docker compose down
-docker volume rm mevius_mevius-data
-docker compose up --build -d
-docker compose exec api mevius seed
-```
-
-The volume name can differ when `COMPOSE_PROJECT_NAME` is set; use
-`docker volume ls` to identify the project-scoped `mevius-data` volume. Mevius
-never deletes a database, volume, backup, or untracked file automatically.
-
-## Development
-
-```bash
-# Terminal 1 — backend (hot-reload via CompileDaemon or plain go run)
-MEVIUS_MASTER_KEY=$(openssl rand -hex 32) \
-MEVIUS_API_TOKEN=$(openssl rand -hex 32) \
+# Backend: set MEVIUS_API_TOKEN and MEVIUS_MASTER_KEY first.
 go run ./cmd/mevius
-
-# Terminal 2 — frontend (Vite dev server with proxy to backend)
-cd web && npm run dev
+# Frontend, separate terminal (API proxy points at localhost:8080).
+cd web
+npm ci
+npm run dev
 ```
 
-The Vite dev server proxies `/api` to `http://localhost:8080`, so no CORS setup is needed.
-
-## Architecture
-
-- **api**: Go HTTP server (chi router) serving REST at `/api/v1/*`
-- **web**: React SPA (Vite + Tailwind + shadcn/ui) consuming the same-origin API
-- **nginx**: Production reverse proxy — serves static assets, proxies `/api/` to the api container, handles SPA fallback routing
-
-The control-plane model is:
-
-```text
-ProviderConnection -> ResourceInstance <- ProjectResource <- Project
-                          |
-                          +---- ResourceRelation ----> ResourceInstance
+```bash
+go test -race ./...
+go vet ./...
+cd web
+npm run build
+npm run test -- --run
+npm run lint
 ```
 
-Provider and product definitions live in the Go registry. Pipeline runs,
-deployments, logs, and DNS records are read from providers in real time and are
-not persisted.
+Use HTTPS for deployed instances. The UI keeps stable, opaque idempotency keys
+across HTTP retries and page reloads without storing action payloads. Unknown
+operation outcomes are displayed and never automatically executed again.
+Remote deletion is restricted to proven Mevius creations with an available
+selected permission, no protection and no blocking attachments/references.
+Forgetting removes local inventory only and preserves the remote resource.

@@ -1,80 +1,141 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import Accounts from './Accounts'
-
-function json(value: unknown) {
-  return new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } })
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, expect, it, vi } from "vitest";
+import Accounts from "./Accounts";
+const json = (value: unknown) =>
+  new Response(JSON.stringify(value), {
+    headers: { "content-type": "application/json" },
+  });
+const catalog = {
+  products: [
+    {
+      id: "fixture.product",
+      provider_id: "fixture",
+      resource_types: [{ id: "fixture.database", provider_id: "fixture" }],
+    },
+  ],
+  relations: [],
+};
+function mount() {
+  return render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <Accounts />
+    </QueryClientProvider>,
+  );
 }
-
-const configuredGitHub = { provider_id: 'github', available: true, configured: true, source: 'database', client_id: 'client-id', authorization_url: 'https://github.com/login/oauth/authorize', token_url: 'https://github.com/login/oauth/access_token', scopes: ['repo', 'workflow'], pkce: true, redirect_base_url: 'https://mevius.example', callback_url: 'https://mevius.example/api/v1/connections/oauth/callback/github' }
-
-function renderAccounts() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return render(<QueryClientProvider client={client}><Accounts /></QueryClientProvider>)
-}
-
 beforeEach(() => {
-  window.history.replaceState({}, '', '/accounts')
-  vi.restoreAllMocks()
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-    const path = String(input)
-    if (path.endsWith('/connections')) return json([])
-    if (path.endsWith('/catalog/providers')) return json({ providers: [{ id: 'github', display_name: 'GitHub', products: [] }] })
-    if (path.endsWith('/connections/oauth/providers')) return json({ providers: [configuredGitHub] })
-    throw new Error(`unexpected request: ${path}`)
-  })
-})
-
-describe('Accounts OAuth flow', () => {
-  it('offers a configured provider OAuth redirect flow', async () => {
-    const user = userEvent.setup()
-    renderAccounts()
-
-    await user.click(screen.getByRole('button', { name: 'New connection' }))
-    const oauth = await screen.findByRole('button', { name: 'OAuth' })
-    expect(oauth).toBeEnabled()
-    await user.click(oauth)
-    expect(screen.getByRole('button', { name: /Continue to authorization/ })).toBeEnabled()
-    expect(screen.queryByLabelText('Token')).not.toBeInTheDocument()
-  })
-
-  it('restores an authorized server-side session without rendering credentials', async () => {
-    window.history.replaceState({}, '', '/accounts?oauth_session=session-1')
-    vi.mocked(fetch).mockImplementation(async (input) => {
-      const path = String(input)
-      if (path.endsWith('/connections')) return json([])
-      if (path.endsWith('/catalog/providers')) return json({ providers: [{ id: 'github', display_name: 'GitHub', products: [] }] })
-      if (path.endsWith('/connections/oauth/providers')) return json({ providers: [configuredGitHub] })
-      if (path.endsWith('/connections/oauth/sessions/session-1')) return json({ id: 'session-1', provider_id: 'github', status: 'authorized', scopes: [{ type: 'organization', id: 'acme', label: 'Acme' }], expires_at: '2099-01-01T00:00:00Z' })
-      throw new Error(`unexpected request: ${path}`)
-    })
-
-    renderAccounts()
-
-    expect(await screen.findByRole('option', { name: 'Acme (organization)' })).toBeInTheDocument()
-    expect(screen.queryByLabelText('Token')).not.toBeInTheDocument()
-    expect(document.body.textContent).not.toContain('access_token')
-  })
-
-  it('opens a prefilled setup form instead of disabling unconfigured OAuth', async () => {
-    vi.mocked(fetch).mockImplementation(async (input) => {
-      const path = String(input)
-      if (path.endsWith('/connections')) return json([])
-      if (path.endsWith('/catalog/providers')) return json({ providers: [{ id: 'github', display_name: 'GitHub', products: [] }] })
-      if (path.endsWith('/connections/oauth/providers')) return json({ providers: [{ ...configuredGitHub, available: false, configured: false, source: undefined, client_id: undefined, redirect_base_url: undefined, callback_url: undefined }] })
-      throw new Error(`unexpected request: ${path}`)
-    })
-    const user = userEvent.setup()
-    renderAccounts()
-
-    await user.click(screen.getByRole('button', { name: 'New connection' }))
-    const oauth = await screen.findByRole('button', { name: 'OAuth' })
-    expect(oauth).toBeEnabled()
-    await user.click(oauth)
-    expect(screen.getByLabelText('Client ID')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Advanced settings' }))
-    expect(screen.getByLabelText('Authorization URL')).toHaveValue('https://github.com/login/oauth/authorize')
-  })
-})
+  window.history.replaceState({}, "", "/accounts");
+  vi.restoreAllMocks();
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path.endsWith("/catalog")) return json(catalog);
+    if (path.endsWith("/provider-instances"))
+      return json([
+        { id: "instance", provider_id: "fixture", instance_key: "cloud" },
+      ]);
+    if (path.endsWith("/connections")) return json([]);
+    if (path.endsWith("/connections/oauth/providers"))
+      return json([
+        {
+          provider_id: "fixture",
+          configured: true,
+          configuration: { client_id: "public-client" },
+        },
+      ]);
+    throw Error(path);
+  });
+});
+it("authorizes a deployment independently of a scope", async () => {
+  let payload: Record<string, unknown> | undefined;
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith("/connections") && init?.method === "POST") {
+      payload = JSON.parse(String(init.body));
+      return json({ id: "connection" });
+    }
+    if (path.endsWith("/catalog")) return json(catalog);
+    if (path.endsWith("/provider-instances"))
+      return json([
+        { id: "instance", provider_id: "fixture", instance_key: "cloud" },
+      ]);
+    if (path.endsWith("/connections")) return json([]);
+    if (path.endsWith("/connections/oauth/providers")) return json([]);
+    throw Error(path);
+  });
+  const user = userEvent.setup();
+  mount();
+  await screen.findByRole("option", { name: "fixture · cloud" });
+  await user.selectOptions(
+    screen.getByLabelText("Deployment instance"),
+    "instance",
+  );
+  await user.type(screen.getByLabelText("Authorization label"), "My account");
+  await user.type(
+    screen.getByLabelText("Authorization token"),
+    "authorization-secret",
+  );
+  await user.click(screen.getByRole("button", { name: "Save authorization" }));
+  await waitFor(() =>
+    expect(payload).toEqual({
+      provider_instance_id: "instance",
+      label: "My account",
+      credential: "authorization-secret",
+    }),
+  );
+  expect(payload).not.toHaveProperty("scope");
+  expect(screen.getByLabelText("Authorization token")).toHaveValue("");
+});
+it("restores and consumes an OAuth session without rendering secrets", async () => {
+  window.history.replaceState({}, "", "/accounts?oauth_session=session");
+  let completed = false;
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith("/connections/oauth/sessions/session"))
+      return json({ status: "authorized" });
+    if (
+      path.endsWith("/connections/oauth/complete") &&
+      init?.method === "POST"
+    ) {
+      completed = true;
+      expect(JSON.parse(String(init.body))).toEqual({
+        session_id: "session",
+        label: "OAuth authorization",
+      });
+      return json({ id: "connection" });
+    }
+    if (path.endsWith("/catalog")) return json(catalog);
+    if (path.endsWith("/provider-instances")) return json([]);
+    if (path.endsWith("/connections")) return json([]);
+    if (path.endsWith("/connections/oauth/providers")) return json([]);
+    throw Error(path);
+  });
+  const user = userEvent.setup();
+  mount();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Save OAuth authorization" }),
+    ).toBeEnabled(),
+  );
+  expect(screen.queryByText("access_token")).not.toBeInTheDocument();
+  await user.click(
+    screen.getByRole("button", { name: "Save OAuth authorization" }),
+  );
+  await waitFor(() => expect(completed).toBe(true));
+});
+it("shows independent OAuth application setup", async () => {
+  const user = userEvent.setup();
+  mount();
+  await user.click(screen.getByText("OAuth application configuration"));
+  expect(screen.getByLabelText("Client secret")).toHaveAttribute(
+    "type",
+    "password",
+  );
+  expect(
+    await screen.findByRole("option", { name: "fixture · configured" }),
+  ).toBeInTheDocument();
+});

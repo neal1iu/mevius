@@ -23,6 +23,7 @@ type actionsDriver struct{ provider *GitHubProvider }
 
 type pipelineConfig struct {
 	Version              int    `json:"version"`
+	RepositoryID         string `json:"repository_id"`
 	RepositoryExternalID string `json:"repository_external_id"`
 	WorkflowID           int64  `json:"workflow_id"`
 	WorkflowPath         string `json:"workflow_path,omitempty"`
@@ -41,17 +42,21 @@ func (d *actionsDriver) Discover(ctx context.Context, conn *domain.ProviderConne
 	if owner == "" || repo == "" {
 		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "invalid repository external id"}
 	}
+	parentRepo, _, err := d.provider.ghClient(string(credential), conn.Endpoint).Repositories.Get(ctx, owner, repo)
+	if err != nil {
+		return nil, mapError(err)
+	}
 	workflows, _, err := d.provider.ghClient(string(credential), conn.Endpoint).Actions.ListWorkflows(ctx, owner, repo, &gogithub.ListOptions{PerPage: 100})
 	if err != nil {
 		return nil, mapError(err)
 	}
 	result := make([]domain.ExternalResource, 0, len(workflows.Workflows))
 	for _, workflow := range workflows.Workflows {
-		defaultRef, _ := scope.Parent.CachedMeta["default_branch"].(string)
-		cfg := pipelineConfig{Version: 1, RepositoryExternalID: scope.Parent.ExternalID, WorkflowID: workflow.GetID(), WorkflowPath: workflow.GetPath(), DefaultRef: defaultRef}
+		defaultRef := parentRepo.GetDefaultBranch()
+		cfg := pipelineConfig{RepositoryID: strconv.FormatInt(parentRepo.GetID(), 10), Version: 1, RepositoryExternalID: scope.Parent.ExternalID, WorkflowID: workflow.GetID(), WorkflowPath: workflow.GetPath(), DefaultRef: defaultRef}
 		cfgJSON, _ := json.Marshal(cfg)
 		result = append(result, domain.ExternalResource{
-			ExternalID: pipelineExternalID(scope.Parent.ExternalID, workflow.GetID()), ExternalURL: workflow.GetHTMLURL(), DisplayName: workflow.GetName(),
+			IdentityParts: []string{cfg.RepositoryID, strconv.FormatInt(workflow.GetID(), 10)}, ExternalID: pipelineExternalID(scope.Parent.ExternalID, workflow.GetID()), ExternalURL: workflow.GetHTMLURL(), DisplayName: workflow.GetName(),
 			ProviderConfig: cfgJSON, Meta: map[string]any{"state": workflow.GetState(), "path": workflow.GetPath()},
 		})
 	}
@@ -64,13 +69,21 @@ func (d *actionsDriver) Inspect(ctx context.Context, conn *domain.ProviderConnec
 		return nil, err
 	}
 	owner, repo := splitExternalID(cfg.RepositoryExternalID)
+	parentRepo, _, parentErr := d.provider.ghClient(string(credential), conn.Endpoint).Repositories.Get(ctx, owner, repo)
+	if parentErr != nil {
+		return nil, mapError(parentErr)
+	}
+	cfg.RepositoryID = strconv.FormatInt(parentRepo.GetID(), 10)
+	cfg.RepositoryExternalID = parentRepo.GetFullName()
+	cfg.DefaultRef = parentRepo.GetDefaultBranch()
+	owner, repo = splitExternalID(cfg.RepositoryExternalID)
 	wf, _, ghErr := d.provider.ghClient(string(credential), conn.Endpoint).Actions.GetWorkflowByID(ctx, owner, repo, cfg.WorkflowID)
 	if ghErr != nil {
 		return nil, mapError(ghErr)
 	}
 	cfg.WorkflowPath = wf.GetPath()
 	cfgJSON, _ := json.Marshal(cfg)
-	return &domain.ExternalResource{ExternalID: instance.ExternalID, ExternalURL: wf.GetHTMLURL(), DisplayName: wf.GetName(), ProviderConfig: cfgJSON, Meta: map[string]any{"state": wf.GetState(), "path": wf.GetPath()}}, nil
+	return &domain.ExternalResource{IdentityParts: []string{cfg.RepositoryID, strconv.FormatInt(wf.GetID(), 10)}, ExternalID: pipelineExternalID(cfg.RepositoryExternalID, wf.GetID()), ExternalURL: wf.GetHTMLURL(), DisplayName: wf.GetName(), ProviderConfig: cfgJSON, Meta: map[string]any{"state": wf.GetState(), "path": wf.GetPath()}}, nil
 }
 
 func (d *actionsDriver) TriggerPipeline(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance, req domain.TriggerPipelineRequest) (*domain.Execution, error) {
@@ -128,6 +141,9 @@ func (d *actionsDriver) GetPipelineRun(ctx context.Context, conn *domain.Provide
 	if ghErr != nil {
 		return nil, mapError(ghErr)
 	}
+	if run.GetWorkflowID() != cfg.WorkflowID {
+		return nil, &provider.Error{Kind: provider.KindUnsupported, ProviderMsg: "run does not belong to selected workflow"}
+	}
 	result := workflowRun(run)
 	return &result, nil
 }
@@ -140,6 +156,9 @@ func (d *actionsDriver) CancelPipelineRun(ctx context.Context, conn *domain.Prov
 	id, err := strconv.ParseInt(runID, 10, 64)
 	if err != nil {
 		return &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "invalid run id"}
+	}
+	if _, err := d.GetPipelineRun(ctx, conn, credential, instance, runID); err != nil {
+		return err
 	}
 	owner, repo := splitExternalID(cfg.RepositoryExternalID)
 	_, ghErr := d.provider.ghClient(string(credential), conn.Endpoint).Actions.CancelWorkflowRunByID(ctx, owner, repo, id)
@@ -158,6 +177,9 @@ func (d *actionsDriver) RerunPipeline(ctx context.Context, conn *domain.Provider
 	if err != nil {
 		return nil, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: "invalid run id"}
 	}
+	if _, err := d.GetPipelineRun(ctx, conn, credential, instance, runID); err != nil {
+		return nil, err
+	}
 	owner, repo := splitExternalID(cfg.RepositoryExternalID)
 	if _, ghErr := d.provider.ghClient(string(credential), conn.Endpoint).Actions.RerunWorkflowByID(ctx, owner, repo, id); ghErr != nil {
 		return nil, mapError(ghErr)
@@ -168,6 +190,9 @@ func (d *actionsDriver) RerunPipeline(ctx context.Context, conn *domain.Provider
 func (d *actionsDriver) GetPipelineLogs(ctx context.Context, conn *domain.ProviderConnection, credential []byte, instance *domain.ResourceInstance, executionID string, tail int) (domain.LogChunk, error) {
 	cfg, err := pipelineConfigFor(instance)
 	if err != nil {
+		return domain.LogChunk{}, err
+	}
+	if _, err := d.GetPipelineRun(ctx, conn, credential, instance, executionID); err != nil {
 		return domain.LogChunk{}, err
 	}
 	owner, repo := splitExternalID(cfg.RepositoryExternalID)
@@ -183,6 +208,7 @@ func (d *actionsDriver) GetPipelineLogs(ctx context.Context, conn *domain.Provid
 	if err != nil {
 		return domain.LogChunk{}, &provider.Error{Kind: provider.KindUpstream, ProviderMsg: err.Error()}
 	}
+	req.Header.Set("Authorization", "Bearer "+string(credential))
 	noRedirect := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := noRedirect.Do(req)
 	if err != nil {
@@ -272,6 +298,8 @@ func tailZipContent(data []byte, maxBytes int) (string, bool) {
 	}
 	files := map[string][]byte{}
 	names := []string{}
+	budget := 8 * 1024 * 1024
+	limited := false
 	for _, file := range r.File {
 		if file.FileInfo().IsDir() {
 			continue
@@ -280,8 +308,22 @@ func tailZipContent(data []byte, maxBytes int) (string, bool) {
 		if err != nil {
 			continue
 		}
-		content, _ := io.ReadAll(rc)
+		if budget <= 0 {
+			rc.Close()
+			limited = true
+			break
+		}
+		content, readErr := io.ReadAll(io.LimitReader(rc, int64(budget)+1))
 		rc.Close()
+		if readErr != nil {
+			limited = true
+			continue
+		}
+		if len(content) > budget {
+			content = content[:budget]
+			limited = true
+		}
+		budget -= len(content)
 		names = append(names, file.Name)
 		files[file.Name] = content
 	}
@@ -295,7 +337,7 @@ func tailZipContent(data []byte, maxBytes int) (string, bool) {
 	}
 	content := buf.Bytes()
 	if len(content) <= maxBytes {
-		return string(content), false
+		return string(content), limited
 	}
 	return string(content[len(content)-maxBytes:]), true
 }
